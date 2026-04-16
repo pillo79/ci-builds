@@ -1,0 +1,48 @@
+name: Generate indexes
+
+on:
+  push:
+    paths:
+      - 'snippets/**'
+  workflow_run:
+    workflows: ["Store snippets"]
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ci-builds
+        uses: actions/checkout@v4
+
+      - name: Generate index
+        run: |
+          mkdir -p report
+
+          # TODO: add index generation logic here.
+          # The full data tree is available under snippets/{repo}/{branch}/*.json
+          # Example — combine all snippets into a single index:
+          #   jq -s '.' snippets/**/*.json > report/index.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: report/
+
+  deploy:
+    needs: generate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

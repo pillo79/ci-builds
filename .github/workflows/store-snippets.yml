@@ -1,0 +1,65 @@
+name: Store snippets
+
+on:
+  workflow_call:
+    inputs:
+      snippets:
+        description: >
+          JSON object mapping filename to JSON object.
+          Example: {"build-info.json": {"version":"1.0","sha":"abc"}, "tests.json": {"passed":42}}
+        required: true
+        type: string
+    secrets:
+      ci_cores_token:
+        description: PAT with contents:write on ci-builds
+        required: true
+
+jobs:
+  store:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ci-builds
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ci_cores_token }}
+
+      - name: Write snippet files
+        env:
+          SNIPPETS: ${{ inputs.snippets }}
+          # Repo/branch come from the calling workflow's context — cannot be forged via inputs
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          TARGET_DIR="snippets/${SOURCE_REPO//\//-}/${SOURCE_BRANCH}"
+          mkdir -p "$TARGET_DIR"
+
+          echo "$SNIPPETS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' | \
+          while IFS=$'\t' read -r filename content; do
+            echo "$content" | jq '.' > "$TARGET_DIR/$filename"
+            echo "Wrote $TARGET_DIR/$filename"
+          done
+
+      - name: Commit and push (with retry)
+        env:
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add snippets/
+
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+
+          git commit -m "ci: store snippets from ${SOURCE_REPO}@${SOURCE_BRANCH}"
+
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Push succeeded on attempt $attempt"
+              break
+            fi
+            echo "Push failed (attempt $attempt), rebasing and retrying..."
+            git pull --rebase
+          done
