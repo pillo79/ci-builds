@@ -21,6 +21,13 @@ on:
           Used to cryptographically verify the caller's repository and branch.
         required: true
         type: string
+      base_branch:
+        description: >
+          Branch the tag was cut from. Required when the satellite triggers this workflow
+          from a tag ref — snippets will be stored under that branch's folder.
+          Ignored when the ref is already a branch.
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -40,6 +47,7 @@ jobs:
         id: verify-oidc
         env:
           OIDC_TOKEN: ${{ inputs.oidc_token }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
         run: |
           python3 - <<'EOF'
           import json, os, sys, urllib.request
@@ -76,16 +84,25 @@ jobs:
 
           repo = payload['repository']
           ref = payload['ref']
-          for prefix in ('refs/heads/', 'refs/tags/'):
-              if ref.startswith(prefix):
-                  ref = ref[len(prefix):]
-                  break
+
+          if ref.startswith('refs/heads/'):
+              branch = ref.removeprefix('refs/heads/')
+          elif ref.startswith('refs/tags/'):
+              base_branch = os.environ.get('BASE_BRANCH', '').strip()
+              if not base_branch:
+                  print('::error::base_branch input is required when triggering from a tag ref', file=sys.stderr)
+                  sys.exit(1)
+              branch = base_branch
+              print(f'Tag ref {ref!r} mapped to branch {branch!r} via base_branch input')
+          else:
+              print(f'::error::Unrecognised ref format {ref!r}', file=sys.stderr)
+              sys.exit(1)
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               print(f'source_repo={repo}', file=f)
-              print(f'source_branch={ref}', file=f)
+              print(f'source_branch={branch}', file=f)
 
-          print(f'Verified source: {repo}@{ref}')
+          print(f'Verified source: {repo}@{branch}')
           EOF
 
       - name: Validate snippets
