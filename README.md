@@ -79,6 +79,9 @@ jobs:
               ref: 'main',
               inputs: {
                 oidc_token: '${{ steps.oidc.outputs.token }}',
+                // Required only when running from a tag ref; ignored for branch refs.
+                // Snippets will be stored under this branch's folder.
+                base_branch: '${{ github.base_ref || github.ref_name }}',
                 snippets: JSON.stringify({
                   'build-info.json': ${{ toJSON(steps.build.outputs.metadata) }},
                   'test-results.json': ${{ toJSON(steps.test.outputs.results) }},
