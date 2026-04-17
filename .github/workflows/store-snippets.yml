@@ -132,7 +132,7 @@ jobs:
           SOURCE_BRANCH: ${{ steps.verify-oidc.outputs.source_branch }}
           SNIPPET_TYPE: ${{ inputs.snippet_type }}
         run: |
-          TARGET_DIR="snippets/${SOURCE_REPO//\//-}/${SOURCE_BRANCH}/${SNIPPET_TYPE}s"
+          TARGET_DIR="snippets/${SOURCE_REPO}/${SOURCE_BRANCH}/${SNIPPET_TYPE}s"
           mkdir -p "$TARGET_DIR"
 
           echo "$SNIPPETS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' | \
