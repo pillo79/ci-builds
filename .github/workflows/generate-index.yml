@@ -52,45 +52,40 @@ jobs:
           echo "Building reference index"
           (cd package_index && scripts/meld.py prod.json prod/ > /dev/null)
 
-          for repo_dir in snippets/*/; do
-            repo="${repo_dir%/}"; repo="${repo#snippets/}"
-            for branch_dir in "$repo_dir"*/; do
-              [ -d "$branch_dir" ] || continue
-              branch="${branch_dir%/}"; branch="${branch#"$repo_dir"}"
+          for branch_dir in snippets/*/*/*/; do
+            [ -d "$branch_dir" ] || continue
+            IFS='/' read -r _ owner repo branch _ <<< "$branch_dir"
 
-              # Derive short name: strip owner (everything up to and including '-'),
-              # then strip optional 'ArduinoCore-' prefix, append branch and _ci suffix.
-              short_repo="${repo#*-}"               # strip owner prefix (e.g. arduino-)
-              short_repo="${short_repo#ArduinoCore-}" # strip ArduinoCore- prefix if present
-              index_name="${short_repo}_${branch}_ci"
+            # Derive short name: strip optional 'ArduinoCore-' prefix, append branch and _ci suffix.
+            # e.g. arduino/ArduinoCore-zephyr / main → arduino_zephyr_main_ci
+            short_repo="${repo#ArduinoCore-}"
+            index_name="${owner}_${short_repo}_${branch}_ci"
 
-              echo "Building index: ${index_name} from ${branch_dir}"
+            echo "::group::Building index ${index_name}.json from ${branch_dir}"
 
-              # Prepare platforms dir and copy JSON snippets
-              mkdir -p "package_index/${index_name}/arduino/platforms"
-              cp "${branch_dir}platforms/"*.json "package_index/${index_name}/arduino/platforms/" 2>/dev/null || true
+            # Prepare platforms dir and copy JSON snippets
+            mkdir -p "package_index/${index_name}/${owner}/platforms"
+            cp "${branch_dir}platforms/"*.json "package_index/${index_name}/${owner}/platforms/" 2>/dev/null || true
 
-              # Copy tools from <indexname>_staging if present (mirrors zephyr_staging → zephyr_ci)
-              staging_dir="package_index/${index_name}_staging"
-              if [ -d "$staging_dir" ]; then
-                (cd "$staging_dir" && for dir in */tools; do
-                  mkdir -p "../${index_name}/${dir}"
-                  cp "${dir}"/*.json "../${index_name}/${dir}/"
-                done)
-              fi
+            # Copy tools from <indexname>_staging if present (mirrors zephyr_staging → zephyr_ci)
+            staging_dir="package_index/${index_name}_staging"
+            if [ -d "$staging_dir" ]; then
+              (cd "$staging_dir" && for dir in */tools; do
+                mkdir -p "../${index_name}/${dir}"
+                cp "${dir}"/*.json "../${index_name}/${dir}/"
+              done)
+            fi
 
-              # Copy tools from snippets (per-branch tools/, higher priority than staging)
-              if [ -d "${branch_dir}tools" ]; then
-                mkdir -p "package_index/${index_name}/arduino/tools"
-                cp "${branch_dir}tools/"*.json "package_index/${index_name}/arduino/tools/" 2>/dev/null || true
-              fi
+            # Copy tools from snippets (per-branch tools/, higher priority than staging)
+            if [ -d "${branch_dir}tools" ]; then
+              mkdir -p "package_index/${index_name}/${owner}/tools"
+              cp "${branch_dir}tools/"*.json "package_index/${index_name}/${owner}/tools/" 2>/dev/null || true
+            fi
 
-              # Generate the final index
-              (cd package_index && scripts/meld.py \
-                --ref-index prod.json \
-                "../pages/package_${index_name}_index.json" \
-                "${index_name}/")
-            done
+            # Generate the final index
+            (cd package_index && scripts/meld.py --ref-index prod.json "../pages/${index_name}.json" "${index_name}/")
+
+            echo "::endgroup::"
           done
 
       - name: Upload Pages artifact

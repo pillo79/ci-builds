@@ -5,22 +5,23 @@ Central store for CI build-metadata JSON snippets, with automated package index 
 ## How it works
 
 1. Satellite repos call the reusable `store-snippets.yml` workflow at the end of their CI run
-2. JSON snippets are committed to `snippets/{repo}/{branch}/{run-id}/`
+2. JSON snippets are committed to `snippets/{owner}/{repo}/{branch}/`
 3. The `generate-index.yml` workflow triggers automatically, builds and publishes to GitHub Pages
 
 ## Repository layout
 
 ```
 snippets/
-  {repo}/
-    {branch}/
-      platforms/
-        <core-snippet-vxx-main>.json
-        <core-snippet-vxx-contrib>.json
-        ...           ← platform snippets from the same repo/branch
-      tools/
-        <tool-snippet-vxx>.json
-        ...           ← tool snippets from the same repo/branch
+  {owner}/
+    {repo}/
+      {branch}/
+        platforms/
+          <core-snippet-vxx-main>.json
+          <core-snippet-vxx-contrib>.json
+          ...           ← platform snippets from the same repo/branch
+        tools/
+          <tool-snippet-vxx>.json
+          ...           ← tool snippets from the same repo/branch
 .github/workflows/
   store-snippets.yml  ← reusable workflow called by satellites
   generate-index.yml ← report generation + Pages deploy
@@ -117,16 +118,16 @@ With `workflow_dispatch`, the workflow runs **inside ci-builds** — ci-builds u
 
 ## Customising the output
 
-`generate-index.yml` clones the private package-index repo (via `PACKAGE_INDEX_DEPLOY_KEY` + `PACKAGE_INDEX_REPO` secrets) and for each `snippets/{repo}/{branch}/` folder:
+`generate-index.yml` clones the private package-index repo (via `PACKAGE_INDEX_DEPLOY_KEY` + `PACKAGE_INDEX_REPO` secrets) and for each `snippets/{owner}/{repo}/{branch}/` folder:
 
-1. Derives the index name: strips the owner and optional `ArduinoCore-` prefix, appends branch + `_ci`  
-   e.g. `arduino-ArduinoCore-zephyr / main` → `zephyr_main_ci`
-2. Copies platform JSONs from `snippets/{repo}/{branch}/platforms/` into `<indexname>/arduino/platforms/`
-3. Copies tool JSONs from `snippets/{repo}/{branch}/tools/` into `<indexname>/arduino/tools/`
+1. Derives the index name: strips `ArduinoCore-` from repo, concatenates owner, short repo, branch and `_ci`
+   e.g. `arduino / ArduinoCore-zephyr / main` → `arduino_zephyr_main_ci`
+2. Copies platform JSONs from `snippets/{owner}/{repo}/{branch}/platforms/` into `<indexname>/{owner}/platforms/`
+3. Copies tool JSONs from `snippets/{owner}/{repo}/{branch}/tools/` into `<indexname>/{owner}/tools/`
 4. Copies additional tools from `<indexname>_staging/*/tools/` in the private repo (if present)
-5. Runs `meld.py --ref-index prod.json pages/package_<indexname>_index.json <indexname>/`
+5. Runs `meld.py --ref-index prod.json pages/<indexname>.json <indexname>/`
 
-Output: `package_<indexname>_index.json` per repo/branch, published to GitHub Pages.
+Output: `<indexname>.json` per repo/branch, published to GitHub Pages.
 
 ### Required secrets (in ci-builds)
 
