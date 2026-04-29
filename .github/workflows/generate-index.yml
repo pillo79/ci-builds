@@ -1,5 +1,8 @@
 name: Generate indexes
 
+# Copyright (c) Arduino s.r.l. and/or its affiliated companies
+# SPDX-License-Identifier: Apache-2.0
+
 on:
   push:
     paths:
@@ -15,26 +18,79 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout ci-builds
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Generate index
+      - name: Checkout package index repo
+        uses: actions/checkout@v6
+        with:
+          path: package_index
+          repository: ${{ secrets.PACKAGE_INDEX_REPO }}
+          ssh-key: ${{ secrets.PACKAGE_INDEX_DEPLOY_KEY }}
+
+      - name: Setup Python environment
         run: |
-          mkdir -p report
+          python3 -m venv package_index/venv
+          . package_index/venv/bin/activate
+          pip install -r package_index/scripts/requirements.txt
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> "$GITHUB_ENV"
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
 
-          # TODO: add index generation logic here.
-          # The full data tree is available under snippets/{repo}/{branch}/*.json
-          # Example — combine all snippets into a single index:
-          #   jq -s '.' snippets/**/*.json > report/index.json
+      - name: Build per-repo/branch indexes
+        run: |
+          mkdir -p pages
+
+          echo "Building reference index"
+          (cd package_index && scripts/meld.py prod.json prod/ > /dev/null)
+
+          for repo_dir in snippets/*/; do
+            repo="${repo_dir%/}"; repo="${repo#snippets/}"
+            for branch_dir in "$repo_dir"*/; do
+              [ -d "$branch_dir" ] || continue
+              branch="${branch_dir%/}"; branch="${branch#"$repo_dir"}"
+
+              # Derive short name: strip owner (everything up to and including '-'),
+              # then strip optional 'ArduinoCore-' prefix, append branch and _ci suffix.
+              short_repo="${repo#*-}"               # strip owner prefix (e.g. arduino-)
+              short_repo="${short_repo#ArduinoCore-}" # strip ArduinoCore- prefix if present
+              index_name="${short_repo}_${branch}_ci"
+
+              echo "Building index: ${index_name} from ${branch_dir}"
+
+              # Prepare platforms dir and copy JSON snippets
+              mkdir -p "package_index/${index_name}/arduino/platforms"
+              cp "${branch_dir}"*.json "package_index/${index_name}/arduino/platforms/" 2>/dev/null || true
+
+              # Copy tools from <indexname>_staging if present (mirrors zephyr_staging → zephyr_ci)
+              staging_dir="package_index/${index_name}_staging"
+              if [ -d "$staging_dir" ]; then
+                (cd "$staging_dir" && for dir in */tools; do
+                  mkdir -p "../${index_name}/${dir}"
+                  cp "${dir}"/*.json "../${index_name}/${dir}/"
+                done)
+              fi
+
+              # Generate the final index
+              (cd package_index && scripts/meld.py \
+                --ref-index prod.json \
+                "../pages/package_${index_name}_index.json" \
+                "${index_name}/")
+            done
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: report/
+          path: pages/
 
   deploy:
     needs: generate
