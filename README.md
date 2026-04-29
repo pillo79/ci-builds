@@ -111,4 +111,20 @@ With `workflow_dispatch`, the workflow runs **inside ci-builds** — ci-builds u
 
 ## Customising the output
 
-Edit the `generate-index.yml`.
+`generate-index.yml` clones the private package-index repo (via `PACKAGE_INDEX_DEPLOY_KEY` + `PACKAGE_INDEX_REPO` secrets) and for each `snippets/{repo}/{branch}/` folder:
+
+1. Derives the index name: strips the owner and optional `ArduinoCore-` prefix, appends branch + `_ci`  
+   e.g. `arduino-ArduinoCore-zephyr / main` → `zephyr_main_ci`
+2. Copies JSON snippets into `<indexname>/arduino/platforms/`
+3. Copies tools from `<indexname>_staging/*/tools/` (if present)
+4. Runs `meld.py --ref-index prod.json pages/package_<indexname>_index.json <indexname>/`
+
+Output: `package_<indexname>_index.json` per repo/branch, published to GitHub Pages.
+
+### Required secrets (in ci-builds)
+
+| Name | Value |
+|---|---|
+| `PACKAGE_INDEX_DEPLOY_KEY` | SSH read-only key to the package index repo |
+| `PACKAGE_INDEX_REPO` | Github package index repository to use |
+
