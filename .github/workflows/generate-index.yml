@@ -79,12 +79,50 @@ jobs:
               done)
             fi
 
-            # Tools: only from the latest version subdir (snippet tools override staging)
-            latest_version_dir=$(ls -d "${branch_dir}"*/ 2>/dev/null | sort -V | tail -1)
-            if [ -n "$latest_version_dir" ] && [ -d "${latest_version_dir}tools" ]; then
-              mkdir -p "package_index/${index_name}/${owner}/tools"
-              cp "${latest_version_dir}tools/"*.json "package_index/${index_name}/${owner}/tools/" 2>/dev/null || true
+            # Tools: for a release run (max_dir == last_release), include >= prev_release
+            # so that 1.1.x tools are also included in the 1.2.0 index.
+            # For post-release pre-release runs (max_dir > last_release), include > last_release
+            # so that 1.2.0 tools are excluded from the 1.2.1 index.
+            tag_file="${branch_dir}tagged-versions"
+            last_release=""
+            prev_release=""
+            if [ -f "$tag_file" ]; then
+              last_release=$(tail -1 "$tag_file")
+              prev_release=$(tail -2 "$tag_file" | head -1)  # same as last if only one entry
             fi
+
+            version_gte() { [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]; }
+            version_gt()  { version_gte "$1" "$2" && [ "$1" != "$2" ]; }
+
+            # Find the maximum version dir present
+            max_ver=""
+            for vd in "${branch_dir}"*/; do
+              [ -d "$vd" ] || continue
+              v="${vd%/}"; v="${v##*/}"
+              if [ -z "$max_ver" ] || version_gt "$v" "$max_ver"; then max_ver="$v"; fi
+            done
+
+            # post-release pre-release: newer dirs exist beyond the last tag
+            if [ -n "$last_release" ] && version_gt "$max_ver" "$last_release"; then
+              use_strict_gt=true
+            else
+              use_strict_gt=false
+            fi
+
+            mkdir -p "package_index/${index_name}/${owner}/tools"
+            for version_dir in "${branch_dir}"*/; do
+              [ -d "${version_dir}tools" ] || continue
+              ver="${version_dir%/}"; ver="${ver##*/}"
+              include=false
+              if [ -z "$last_release" ]; then
+                include=true
+              elif $use_strict_gt && version_gt "$ver" "$last_release"; then
+                include=true
+              elif ! $use_strict_gt && version_gte "$ver" "$prev_release"; then
+                include=true
+              fi
+              $include && cp "${version_dir}tools/"*.json "package_index/${index_name}/${owner}/tools/" 2>/dev/null || true
+            done
 
             # Generate the final index
             (cd package_index && scripts/meld.py --ref-index prod.json "../pages/${index_name}.json" "${index_name}/")
