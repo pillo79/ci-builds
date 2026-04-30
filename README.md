@@ -15,15 +15,16 @@ snippets/
   {owner}/
     {repo}/
       {branch}/
-        platforms/
-          <core-snippet-vxx-main>.json
-          <core-snippet-vxx-contrib>.json
-          ...           ← platform snippets from the same repo/branch
-        tools/
-          <tool-snippet-vxx>.json
-          ...           ← tool snippets from the same repo/branch
-        metadata/
-          *.json      ← per-build metadata files (one per key in metadata input)
+        {version_short}/              ← e.g. 1.2.3
+          platforms/
+            {version}-<snippet>.json  ← e.g. 1.2.3-rc1-build-info.json
+            ...
+          tools/
+            {version}-<snippet>.json
+            ...
+          metadata/
+            {version}-<file>.json
+            ...
 .github/workflows/
   store-snippets.yml  ← reusable workflow called by satellites
   generate-index.yml ← report generation + Pages deploy
@@ -89,17 +90,14 @@ jobs:
                 // Required only when running from a tag ref; ignored for branch refs.
                 // Snippets will be stored under this branch's folder.
                 base_branch: '${{ github.base_ref || github.ref_name }}',
-                // 'platform' (default) or 'tool'
-                snippet_type: 'platform',
-                // optional: build version
                 version: '${{ steps.build.outputs.version }}',
                 snippets: JSON.stringify({
-                  'build-info.json': ${{ toJSON(steps.build.outputs.metadata) }},
-                  'test-results.json': ${{ toJSON(steps.test.outputs.results) }},
-                }),
-                // optional: per-build metadata stored under metadata/
-                metadata: JSON.stringify({
-                  'ci.json': {
+                  // Keys must start with 'platforms/', 'tools/', or 'metadata/'
+                  // All stored under {branch}/{version_short}/ with full version prefixed to filename
+                  // e.g. platforms/build-info.json → 1.2.3/platforms/1.2.3-rc1-build-info.json
+                  'platforms/build-info.json': ${{ toJSON(steps.build.outputs.metadata) }},
+                  'tools/gcc.json': ${{ toJSON(steps.build.outputs.tool_info) }},
+                  'metadata/ci.json': {
                     run_id: '${{ github.run_id }}',
                     run_url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
                     sha: '${{ github.sha }}',
@@ -109,7 +107,7 @@ jobs:
             });
 ```
 
-`snippets` is a JSON object: **keys** are the filenames to store, **values** are the JSON objects to write.
+`snippets` is a JSON object: **keys** are relative paths to store, **values** are the JSON objects to write. Keys must start with `platforms/`, `tools/`, or `metadata/`.
 
 The satellite's repository and branch are **not passed as inputs**. They are extracted inside ci-builds from the OIDC token — a JWT signed by GitHub's own key. If the token is missing, expired, or was issued for a different audience, the workflow fails before any data is written.
 
