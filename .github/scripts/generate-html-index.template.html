@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CI Build Artifacts</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; padding: 20px; color: #212529; margin: 0; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .search-container { margin-bottom: 20px; }
+        #searchInput { width: 100%; padding: 12px 15px; font-size: 16px; border: 1px solid #ced4da; border-radius: 6px; box-sizing: border-box; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out; }
+        #searchInput:focus { border-color: #86b7fe; outline: 0; box-shadow: 0 0 0 0.25rem rgba(13,110,253,.25); }
+        .grid-row { display: grid; grid-template-columns: 1fr 3fr 3fr 2fr; gap: 15px; padding: 10px 15px; align-items: center; }
+        .table-header { font-weight: 700; background: #e9ecef; border-bottom: 2px solid #dee2e6; border-radius: 4px; }
+        .sortable { cursor: pointer; user-select: none; padding: 5px; border-radius: 4px; transition: background 0.1s; }
+        .sortable:hover { background: #dee2e6; }
+        summary { cursor: pointer; list-style: none; }
+        summary::-webkit-details-marker { display: none; }
+        .file-item { border-bottom: none; box-shadow: 0 1px 0 0 #e9ecef; }
+        .summary-row { font-weight: 600; }
+        .summary-row:hover { background: #f8f9fa; }
+        .sub-group { margin-left: 20px; border-left: 3px solid #adb5bd; margin-bottom: 5px; }
+        .sub-group::after { content: ''; display: block; border-top: 1px solid #e9ecef; }
+        .sub-summary-row { background: #fdfdfd; font-size: 0.95em; font-weight: 500; border-bottom: 1px solid #f1f3f5; }
+        .sub-summary-row:hover { background: #f1f3f5; }
+        .detail-row { background: #ffffff; margin-left: 20px; font-size: 0.85em; border-bottom: 1px dashed #f1f3f5; }
+        /* Row left borders to match badges */
+        .sub-group:has(.badge-platform) { border-left-color: #badbcc; }
+        .sub-group:has(.badge-tool)     { border-left-color: #88b4fc; }
+	.detail-row:last-child { border-bottom: none; }
+        .tree-branch { color: #adb5bd; margin-right: 8px; font-weight: 400; }
+        a { color: #0d6efd; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+	.badge { display: inline-block; padding: 0.35em 0.65em; font-size: 0.85em; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: 50rem; margin-right: 5px; }
+	.badge-branch { color: #664d03; background-color: #fff3cd; border: 1px solid #ffecb5; }
+	.badge-platform { color: #0f5132; background-color: #d1e7dd; /* Light green */ border: 1px solid #badbcc; }
+	.badge-tool { color: #084298; background-color: #cfe2ff; /* Light blue */ border: 1px solid #b6d4fe; }
+        #emptyMessage { display: none; padding: 20px; text-align: center; color: #adb5bd; font-style: italic; }
+        footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #dee2e6; text-align: right; font-size: 0.8em; color: #adb5bd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Artifact Index</h2>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="Filter by packager, tool, version (e.g. 'ubuntu v1.2.1')...">
+        </div>
+        <div class="grid-row table-header" id="tableHeader">
+            <span>Kind</span>
+            <span class="sortable" data-col="1">Name ↕</span>
+            <span class="sortable" data-col="2">Latest Version ↕</span>
+            <span class="sortable" data-col="3">Last Modified ↕</span>
+        </div>
+
+        <div id="emptyMessage">No matching results.</div>
+        <div id="fileList">
+            {{ FILE_LIST_CONTENT }}
+        </div>
+
+        <footer>Last updated: {{ GENERATED_AT }}</footer>
+    </div>
+    <script>
+        // Filtering Logic
+        document.getElementById('searchInput').addEventListener('input', function(e) {
+            const searchWords = e.target.value.toLowerCase().split(/\s+/).filter(word => word.length > 0);
+            const fileItems = document.querySelectorAll('.file-item');
+
+            fileItems.forEach(item => {
+                if (searchWords.length === 0) {
+                    item.style.display = 'block';
+                    item.open = false;
+                    item.querySelectorAll('.sub-group').forEach(sub => { sub.open = false; sub.style.display = ''; });
+                    item.querySelectorAll('.detail-row').forEach(row => row.style.display = '');
+                    return;
+                }
+
+                // Filter detail rows, then cascade up
+                item.querySelectorAll('.detail-row').forEach(row => {
+                    const rowText = row.textContent.toLowerCase();
+                    row.style.display = searchWords.every(w => rowText.includes(w)) ? '' : 'none';
+                });
+
+                let itemHasVisible = false;
+                item.querySelectorAll('.sub-group').forEach(sub => {
+                    const anyVisible = Array.from(sub.querySelectorAll('.detail-row'))
+                                            .some(r => r.style.display !== 'none');
+                    sub.style.display = anyVisible ? '' : 'none';
+                    if (anyVisible) { sub.open = true; itemHasVisible = true; }
+                });
+
+                item.style.display = itemHasVisible ? 'block' : 'none';
+                if (itemHasVisible) item.open = true;
+            });
+            const anyVisible = Array.from(fileItems).some(i => i.style.display !== 'none');
+            document.getElementById('emptyMessage').style.display = (searchWords.length > 0 && !anyVisible) ? 'block' : 'none';
+        });
+
+        // Sorting Logic
+        let currentSortCol = -1;
+        let sortAsc = true;
+
+        document.querySelectorAll('.sortable').forEach(header => {
+            header.addEventListener('click', () => {
+                const colIndex = parseInt(header.getAttribute('data-col'));
+                const fileList = document.getElementById('fileList');
+                const items = Array.from(fileList.querySelectorAll(':scope > .file-item'));
+
+                if (currentSortCol === colIndex) {
+                    sortAsc = !sortAsc;
+                } else {
+                    currentSortCol = colIndex;
+                    sortAsc = true;
+                }
+
+                document.querySelectorAll('.sortable').forEach(el => {
+                    let text = el.textContent.replace(' ▲', '').replace(' ▼', '').replace(' ↕', '');
+                    if (parseInt(el.getAttribute('data-col')) === colIndex) {
+                        el.textContent = text + (sortAsc ? ' ▲' : ' ▼');
+                    } else {
+                        el.textContent = text + ' ↕';
+                    }
+                });
+
+                items.sort((a, b) => {
+                    const aSpan = a.querySelector('.summary-row').children[colIndex];
+                    const bSpan = b.querySelector('.summary-row').children[colIndex];
+                    const aText = aSpan.textContent.trim().toLowerCase();
+                    const bText = bSpan.textContent.trim().toLowerCase();
+
+                    if (aText < bText) return sortAsc ? -1 : 1;
+                    if (aText > bText) return sortAsc ? 1 : -1;
+                    return 0;
+                });
+
+                items.forEach(item => fileList.appendChild(item));
+            });
+        });
+    </script>
+</body>
+</html>

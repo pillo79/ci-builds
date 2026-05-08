@@ -8,8 +8,6 @@ name: Generate indexes
 
 on:
   push:
-    paths:
-      - 'snippets/**'
   workflow_run:
     workflows: ["Store snippets"]
     types:
@@ -32,6 +30,8 @@ jobs:
     steps:
       - name: Checkout ci-builds
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need all history to determine the file timestamps
 
       - name: Checkout package index repo
         uses: actions/checkout@v6
@@ -146,6 +146,11 @@ jobs:
 
             echo "::endgroup::"
           done
+
+      - name: Generate index.html
+        run: |
+          python3 .github/scripts/generate-html-index.py --owner-repo ${{ github.repository }}
+          rm pages/*.srcmap # not needed in the published folder
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
