@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout ci-builds
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need all history to determine the file timestamps
 
       - name: Checkout package index repo
         uses: actions/checkout@v6
@@ -129,6 +131,11 @@ jobs:
 
             echo "::endgroup::"
           done
+
+      - name: Generate index.html
+        run: |
+          python3 .github/scripts/generate-html-index.py --owner-repo ${{ github.repository }}
+          rm pages/*.srcmap
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
