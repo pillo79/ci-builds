@@ -27,6 +27,8 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: github-pages
     steps:
       - name: Checkout ci-builds
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -58,6 +60,7 @@ jobs:
           for branch_dir in snippets/*/*/*/; do
             [ -d "$branch_dir" ] || continue
             IFS='/' read -r _ owner repo branch _ <<< "$branch_dir"
+            owner="arduino" # FIXME REMOVEME
 
             # Derive short name: strip optional 'ArduinoCore-' prefix, append branch and _ci suffix.
             # e.g. arduino/ArduinoCore-zephyr / main → arduino_zephyr_main_ci
@@ -158,6 +161,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          ls pages/
           python3 .github/scripts/generate-html-index.py --owner-repo ${{ github.repository }}
           rm pages/*.srcmap # not needed in the published folder
 
@@ -169,9 +173,6 @@ jobs:
   deploy:
     needs: generate
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy Pages
         id: deployment

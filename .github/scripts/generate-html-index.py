@@ -46,12 +46,14 @@ def load_timestamps() -> tuple:
         if len(parts) == 2:
             date_str, filepath = parts
             file_parts = filepath.split("/")
+            print(file_parts)
             if len(file_parts) > 5 and file_parts[0] == "snippets":
                 original = filepath
                 owner, repo, branch, version = file_parts[1:5]
                 src_stem = '/'.join(file_parts[:5])
                 dst_stem = f'{get_index_name(owner, repo, branch)}/{owner}'
                 filepath = filepath.replace(src_stem, dst_stem)
+                filepath = filepath.replace("pillo79", "arduino") # FIXME REMOVEME
                 ts[filepath] = date_str
                 snippet_paths[filepath] = original
     return ts, snippet_paths
@@ -125,14 +127,17 @@ def load_releases(owner: str, repo: str, branch: str) -> set:
 
 def collect_ci_entries() -> dict:
     last_timestamps, snippet_paths = load_timestamps()
+    print(f"Loaded timestamps: {last_timestamps}")
     data: dict = {}
     for branch_dir in sorted(SNIPPETS_DIR.glob("*/*/*/")):
         parts = branch_dir.relative_to(SNIPPETS_DIR).parts
         if len(parts) != 3:
             continue
         owner, repo, branch = parts
+        owner="arduino" # FIXME REMOVEME
         index_name = f"package_{get_index_name(owner, repo, branch)}_index.json"
         raw_srcmap = load_srcmap(index_name)
+        print(f"Processing {index_name} with srcmap: {raw_srcmap}")
         items, plat_versions, last_ts, srcfiles = parse_srcmap_items(raw_srcmap, last_timestamps, snippet_paths)
 
         data[(owner, repo, branch)] = {
@@ -144,6 +149,7 @@ def collect_ci_entries() -> dict:
             "srcfiles": srcfiles,
             "releases": load_releases(owner, repo, branch),
         }
+    print(f"Collected data: {data}")
     return data
 
 
