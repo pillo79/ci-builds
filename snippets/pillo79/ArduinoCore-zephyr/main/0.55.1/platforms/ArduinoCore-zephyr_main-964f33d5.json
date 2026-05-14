@@ -5,12 +5,12 @@
         {
           "name": "Arduino Zephyr Boards (BETA)",
           "architecture": "zephyr_main",
-          "version": "0.55.1-0.head.main.10+964f33d5",
+          "version": "0.55.1-0.head.1.2.3.10+964f33d5",
           "category": "Arduino",
           "url": "https://downloads.arduino.cc/cores/zephyr/ArduinoCore-zephyr_main-964f33d5.tar.bz2",
           "archiveFileName": "ArduinoCore-zephyr_main-964f33d5.tar.bz2",
-          "checksum": "SHA-256:1cd9339260576d203d311dc7c4366663f796643f44e2534ed47f6fc51c35e758",
-          "size": "1139",
+          "checksum": "SHA-256:3f8ec870e7000ca4c2982ca2c3012fd72016fbc6dd7f11c8fc4ac0d3788a49c2",
+          "size": "1121",
           "help": {
             "online": "https://www.arduino.cc/en/Reference/HomePage"
           },

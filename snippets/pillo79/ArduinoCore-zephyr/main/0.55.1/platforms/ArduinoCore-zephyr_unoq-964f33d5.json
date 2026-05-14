@@ -5,12 +5,12 @@
         {
           "name": "Arduino UNO Q Board",
           "architecture": "zephyr",
-          "version": "0.55.1-0.head.main.10+964f33d5",
+          "version": "0.55.1-0.head.1.2.3.10+964f33d5",
           "category": "Arduino",
           "url": "https://downloads.arduino.cc/cores/zephyr/ArduinoCore-zephyr_unoq-964f33d5.tar.bz2",
           "archiveFileName": "ArduinoCore-zephyr_unoq-964f33d5.tar.bz2",
-          "checksum": "SHA-256:ebd76605edbbd85fd3e677f81f710a1ac9e773fd77ddd24c004cd2e3a49ab670",
-          "size": "1142",
+          "checksum": "SHA-256:cfd9f2e3d694237fe68b73a9cab53581b4041850475d9816052ff52c8038c030",
+          "size": "1121",
           "help": {
             "online": "https://www.arduino.cc/en/Reference/HomePage"
           },
