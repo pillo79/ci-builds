@@ -16,8 +16,9 @@ on:
         description: >
           JSON object mapping path to JSON object.
           Keys must start with 'platforms/', 'tools/', or 'metadata/'.
-          'platforms/' and 'tools/' are stored under the version directory.
-          'metadata/' is stored directly under the branch directory (un-versioned).
+          All keys are stored under {branch}/{version_short}/.
+          'platforms/' and 'metadata/' get the full version prefixed to the filename.
+          'tools/' files are stored as-is (overwritten on re-push, no version prefix).
           Example: {"platforms/build-info.json": {...}, "tools/gcc.json": {...}, "metadata/ci.json": {...}}
         required: true
         type: string
@@ -141,17 +142,30 @@ jobs:
         run: |
           VERSION_DIR="snippets/${SOURCE_REPO}/${SOURCE_BRANCH}/${VERSION_SHORT}"
 
-          echo "$SNIPPETS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"' | \
+          # Loop over entries once: remove stale versioned files then write the new one.
           while IFS=$'\t' read -r filepath content; do
             dir=$(dirname "$filepath")
             base=$(basename "$filepath")
-            prefix="${VERSION_DIR}/${dir}/${VERSION}"
-            target="${prefix}-${base}"
-            rm -f ${prefix}-* # handles overwriting releases
+            if [ "$dir" == "tools" ] ; then
+              # Tools snippets do not share the core version, so avoid appending the version to the filename.
+              prefix="${VERSION_DIR}/${dir}/${base}"
+              target="${prefix}"
+            else
+              # Platforms and metadata snippets are versioned with the core version, so append the version to the filename.
+              prefix="${VERSION_DIR}/${dir}/${VERSION}-"
+              target="${prefix}${base}"
+            fi
+
+            # Files with the same prefix (tag updates) must be removed to avoid duplicates
+            old_files=$(git ls-files HEAD ${prefix}*)
+            if [ -n "$old_files" ]; then
+              echo "$old_files" | xargs git rm -f --
+            fi
+
             mkdir -p "$(dirname "$target")"
             echo "$content" | jq '.' > "$target"
             echo "Wrote $target"
-          done
+          done < <(echo "$SNIPPETS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
 
       - name: Record full release version
         if: ${{ env.VERSION_SHORT == inputs.version }}
@@ -169,7 +183,6 @@ jobs:
           SOURCE_REPO: ${{ steps.verify-oidc.outputs.source_repo }}
           SOURCE_BRANCH: ${{ steps.verify-oidc.outputs.source_branch }}
           VERSION: ${{ inputs.version }}
-          SNIPPETS: ${{ inputs.snippets }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -180,9 +193,20 @@ jobs:
             exit 0
           fi
 
-          SNIPPET_NAMES=$(echo "$SNIPPETS" | jq -r 'keys[] | "  - \(.)"')
-          git commit -m "ci: ${SOURCE_REPO}@${SOURCE_BRANCH} (${VERSION})" \
-                     -m $'Snippets stored:\n'"${SNIPPET_NAMES}"
+          ADDED=$(git diff --cached --name-only --diff-filter=AM)
+          DELETED=$(git diff --cached --name-only --diff-filter=DM)
+
+          [ -n "$DELETED" ] && FORCE="force-push "
+          echo "ci: ${SOURCE_REPO}@${SOURCE_BRANCH} (${FORCE}${VERSION})" > COMMIT_MSG
+          echo >> COMMIT_MSG
+          echo "Snippets stored:" >> COMMIT_MSG
+          echo "$ADDED" | sed 's/^/  - /' >> COMMIT_MSG
+          if [ -n "$DELETED" ]; then
+            echo >> COMMIT_MSG
+            echo "Replaced files:" >> COMMIT_MSG
+            echo "$DELETED" | sed 's/^/  - /' >> COMMIT_MSG
+          fi
+          git commit -F COMMIT_MSG
 
           for attempt in 1 2 3 4 5; do
             if git push; then

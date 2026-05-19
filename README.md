@@ -20,7 +20,7 @@ snippets/
             {version}-<snippet>.json  ← e.g. 1.2.3-rc1-build-info.json
             ...
           tools/
-            {version}-<snippet>.json
+            <snippet>.json
             ...
           metadata/
             {version}-<file>.json
@@ -93,8 +93,9 @@ jobs:
                 version: '${{ steps.build.outputs.version }}',
                 snippets: JSON.stringify({
                   // Keys must start with 'platforms/', 'tools/', or 'metadata/'
-                  // All stored under {branch}/{version_short}/ with full version prefixed to filename
-                  // e.g. platforms/build-info.json → 1.2.3/platforms/1.2.3-rc1-build-info.json
+                  // All stored under {branch}/{version_short}/
+                  // platforms/ and metadata/ get a {version}- prefix on the filename; tools/ do not
+                  // e.g. platforms/build-info.json → {version_short}/platforms/{version}-build-info.json
                   'platforms/build-info.json': ${{ toJSON(steps.build.outputs.metadata) }},
                   'tools/gcc.json': ${{ toJSON(steps.build.outputs.tool_info) }},
                   'metadata/ci.json': {
