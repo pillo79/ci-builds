@@ -1,0 +1,49 @@
+{
+  "packages": [
+    {
+      "tools": [
+        {
+          "name": "sync-zephyr-artifacts",
+          "version": "1.2.3",
+          "systems": [
+            {
+              "host": "aarch64-linux-gnu",
+              "url": "https://downloads.arduino.cc/tools/sync-zephyr-artifacts-1.2.3-aarch64-linux-gnu.tar.gz",
+              "archiveFileName": "sync-zephyr-artifacts-1.2.3-aarch64-linux-gnu.tar.gz",
+              "checksum": "SHA-256:85a4df04f9cf39b638ab9f7df1b4cfb2779096e751dc49079332259667b5b005",
+              "size": "4870266"
+            },
+            {
+              "host": "arm64-apple-darwin",
+              "url": "https://downloads.arduino.cc/tools/sync-zephyr-artifacts-1.2.3-arm64-apple-darwin.tar.gz",
+              "archiveFileName": "sync-zephyr-artifacts-1.2.3-arm64-apple-darwin.tar.gz",
+              "checksum": "SHA-256:3453aaa676c01136c00fb957c9acd24a7d211464109ebfb1f78e0c565aaa67df",
+              "size": "5035450"
+            },
+            {
+              "host": "i686-mingw32",
+              "url": "https://downloads.arduino.cc/tools/sync-zephyr-artifacts-1.2.3-i686-mingw32.zip",
+              "archiveFileName": "sync-zephyr-artifacts-1.2.3-i686-mingw32.zip",
+              "checksum": "SHA-256:b2cc208b4fba888affa09cc2f113497801a17be5e68a64083e71e084585ce4c7",
+              "size": "5239940"
+            },
+            {
+              "host": "x86_64-apple-darwin",
+              "url": "https://downloads.arduino.cc/tools/sync-zephyr-artifacts-1.2.3-x86_64-apple-darwin.tar.gz",
+              "archiveFileName": "sync-zephyr-artifacts-1.2.3-x86_64-apple-darwin.tar.gz",
+              "checksum": "SHA-256:892feedf2f3cc8d591a7d017c25eb3ee9f566bb5c6b27ad864111ff8bfbca7aa",
+              "size": "5383214"
+            },
+            {
+              "host": "x86_64-linux-gnu",
+              "url": "https://downloads.arduino.cc/tools/sync-zephyr-artifacts-1.2.3-x86_64-linux-gnu.tar.gz",
+              "archiveFileName": "sync-zephyr-artifacts-1.2.3-x86_64-linux-gnu.tar.gz",
+              "checksum": "SHA-256:629fb2004d9a64c7d01881474925170de31c4a9da27b5d3df538384a974c03f0",
+              "size": "5365563"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
