@@ -87,6 +87,8 @@ jobs:
 
             # Tools: for a release run (max_dir == last_release), include >= prev_release
             # so that 1.1.x tools are also included in the 1.2.0 index.
+            # Exception: if this is the first tagged release (prev == last), include everything —
+            # there is no prior boundary so older tool dirs must not be excluded.
             # For post-release pre-release runs (max_dir > last_release), include > last_release
             # so that 1.2.0 tools are excluded from the 1.2.1 index.
             tag_file="${branch_dir}tagged-versions"
@@ -124,6 +126,8 @@ jobs:
                 include=true
               elif $use_strict_gt && version_gt "$ver" "$last_release"; then
                 include=true
+              elif ! $use_strict_gt && [ "$prev_release" = "$last_release" ]; then
+                include=true  # first release: no prior boundary, include all
               elif ! $use_strict_gt && version_gte "$ver" "$prev_release"; then
                 include=true
               fi
