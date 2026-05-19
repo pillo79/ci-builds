@@ -7,10 +7,10 @@
           "architecture": "zephyr",
           "version": "0.60.0",
           "category": "Arduino",
-          "url": "https://downloads.arduino.cc/cores/zephyr/ArduinoCore-zephyr_unoq-e9ac2145.tar.bz2",
-          "archiveFileName": "ArduinoCore-zephyr_unoq-e9ac2145.tar.bz2",
-          "checksum": "SHA-256:07d10de405bfe8629c0e68327d63ec1e5ef2286364ca41dd2df8fcc4a8d1d915",
-          "size": "1107",
+          "url": "https://downloads.arduino.cc/cores/zephyr/ArduinoCore-zephyr_unoq-510789d8.tar.bz2",
+          "archiveFileName": "ArduinoCore-zephyr_unoq-510789d8.tar.bz2",
+          "checksum": "SHA-256:ae9f56eb0bd34abfd27e6f8394281b2edc9b6b04fdcc6a1532c5b2030950349f",
+          "size": "1105",
           "help": {
             "online": "https://www.arduino.cc/en/Reference/HomePage"
           },
