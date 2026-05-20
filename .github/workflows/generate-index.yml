@@ -147,6 +147,10 @@ jobs:
             echo "::endgroup::"
           done
 
+          # Export the prod index as well, for use as a reference in the HTML generation step
+          cp package_index/prod.json pages/prod.json
+          cp package_index/prod.json.srcmap pages/prod.json.srcmap
+
       - name: Generate index.html
         run: |
           python3 .github/scripts/generate-html-index.py --owner-repo ${{ github.repository }}

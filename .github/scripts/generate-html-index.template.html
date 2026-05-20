@@ -34,7 +34,10 @@
 	.badge { display: inline-block; padding: 0.35em 0.65em; font-size: 0.85em; font-weight: 600; line-height: 1; text-align: center; white-space: nowrap; vertical-align: baseline; border-radius: 50rem; margin-right: 5px; }
 	.badge-branch { color: #664d03; background-color: #fff3cd; border: 1px solid #ffecb5; }
 	.badge-platform { color: #0f5132; background-color: #d1e7dd; /* Light green */ border: 1px solid #badbcc; }
-	.badge-tool { color: #084298; background-color: #cfe2ff; /* Light blue */ border: 1px solid #b6d4fe; }
+	.badge-tool { color: #2862c8; background-color: #dfefff; /* Light blue */ border: 1px solid #b6d4fe; }
+	.badge-official  { color: #41464b; background-color: #e2e3e5; border: 1px solid #d3d6d8; }
+        .official-item { display: none; }
+        .official-item, .official-item > .sub-group > .grid-row { color: #808080; }
         #emptyMessage { display: none; padding: 20px; text-align: center; color: #adb5bd; font-style: italic; }
         footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #dee2e6; text-align: right; font-size: 0.8em; color: #adb5bd; }
     </style>
@@ -67,7 +70,7 @@
 
             fileItems.forEach(item => {
                 if (searchWords.length === 0) {
-                    item.style.display = 'block';
+                    item.style.display = item.classList.contains('official-item') ? 'none' : 'block';
                     item.open = false;
                     item.querySelectorAll('.sub-group').forEach(sub => { sub.open = false; sub.style.display = ''; });
                     item.querySelectorAll('.detail-row').forEach(row => row.style.display = '');

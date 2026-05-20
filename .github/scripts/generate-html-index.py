@@ -46,7 +46,7 @@ def load_timestamps() -> dict:
     #    return {}
 
 
-def load_srcmap(index_name: str) -> dict | None:
+def load_srcmap(index_name: str) -> dict:
     """Load pages/<index_name>.srcmap if it exists, return {"platforms":{}, "tools":{}}."""
     srcmap_path = OUTPUT_DIR / (index_name + ".srcmap")
     if not srcmap_path.exists():
@@ -75,7 +75,27 @@ def sort_by_version(l: list) -> list:
             return sorted(l, key=lambda x: (legacy_parse(x[0]), x[1]), reverse=True)
 
 
-def collect_entries() -> dict:
+def parse_srcmap_items(raw_srcmap: dict, timestamps: dict = {}) -> tuple:
+    """Parse a srcmap dict into (items, plat_versions, last_ts).
+
+    items is a defaultdict mapping (kind, packager, name) → [(version, ts), ...]
+    timestamps maps srcfile path → ISO8601 string; absent entries yield "".
+    """
+    items = collections.defaultdict(list)
+    plat_versions = set()
+    last_ts = ""
+    for kind in "platforms", "tools":
+        for what, srcfile in raw_srcmap.get(kind, {}).items():
+            packager, name, version = what.split(":", 2)
+            ts = timestamps.get(srcfile, "")
+            items[(kind, packager, name)].append((version, ts))
+            last_ts = max(last_ts, ts)
+            if kind == "platforms":
+                plat_versions.add(version)
+    return items, plat_versions, last_ts
+
+
+def collect_ci_entries() -> dict:
     last_timestamps = load_timestamps()
     data: dict = {}
     for branch_dir in sorted(SNIPPETS_DIR.glob("*/*/*/")):
@@ -85,17 +105,7 @@ def collect_entries() -> dict:
         owner, repo, branch = parts
         index_name = f"{get_index_name(owner, repo, branch)}.json"
         raw_srcmap = load_srcmap(index_name)
-        items = collections.defaultdict(list)
-        plat_versions = set()
-        last_ts = ""
-        for kind in "platforms", "tools":
-            for what, srcfile in raw_srcmap.get(kind, {}).items():
-                packager, name, version = what.split(":", 2)
-                ts = last_timestamps.get(srcfile.replace("pillo79","arduino"), "")
-                items[(kind, packager, name)].append((version, ts))
-                last_ts = max(last_ts, ts)
-                if kind == "platforms":
-                    plat_versions.add(version)
+        items, plat_versions, last_ts = parse_srcmap_items(raw_srcmap, last_timestamps)
 
         data[(owner, repo, branch)] = {
             "file": index_name,
@@ -105,6 +115,21 @@ def collect_entries() -> dict:
             "items": items,
         }
     return data
+
+
+def collect_prod_entry() -> dict:
+    """Load prod.json.srcmap from OUTPUT_DIR and build an entry dict (no timestamps)."""
+    raw_srcmap = load_srcmap("prod.json")
+    if not raw_srcmap:
+        return {}
+    items, _, _ = parse_srcmap_items(raw_srcmap)
+    return {
+        "file": None,
+        "plat_vers": [""], # empty column
+        "link": None,
+        "mtime": None,
+        "items": items,
+    }
 
 
 def fmt_ts(ts: str) -> str:
@@ -146,49 +171,62 @@ def fmt_versions(v: list) -> str:
         return "unknown"
 
 
-def build_inner_html(data, url_prefix):
-    """Generates only the list elements, not the whole page."""
-    html_output = ""
+def build_inner_html(index, key = None, url_prefix = ""):
+    """Render <details> blocks for a single index entry."""
+    # Main item block
+    if key: # all CI branch entries
+        owner, repo, branch = key
+        details = 'file-item'
+        badge = '<span class="badge badge-branch">branch</span>'
+        title = f'<a href="{url_prefix + index['file']}">{owner}/{repo}<br>&nbsp;@ {branch}</a>'
+    else: # prod entry
+        details = 'file-item official-item'
+        badge = '<span class="badge badge-official">official</span>'
+        title = 'package_index.json'
 
-    for (owner, repo, branch), index in data.items():
-        # Main item block
-        html_output += f"""
-            <details class="file-item">
-                <summary class="grid-row summary-row">
-                    <span><span class="badge badge-branch">branch</span></span>
-                    <span><a href="{url_prefix + index['file']}">{owner}/{repo}<br>&nbsp;@ {branch}</a></span>
-                    <span>{fmt_versions(index['plat_vers'])}</span>
-                    <span>{fmt_ts(index['mtime'])}</span>
+    html = f"""
+        <details class="{details}">
+            <summary class="grid-row summary-row">
+                <span>{badge}</span>
+                <span>{title}</span>
+                <span>{fmt_versions(index['plat_vers'])}</span>
+                <span>{fmt_ts(index['mtime'])}</span>
+            </summary>"""
+
+    # Sub-groups
+    for (kind, packager, name), versions in sorted(index['items'].items()):
+        kind = kind[:-1]  # drop plural 's'
+        versions = sort_by_version(versions)
+        label = f"{packager}:<b>{name}</b>"
+        badge = f'<span class="badge badge-{kind}">{kind}</span>'
+        html += f"""
+            <details class="sub-group">
+                <summary class="grid-row sub-summary-row">
+                    <span>{badge}</span>
+                    <span><span class="tree-branch">↳</span> {label}</span>
+                    <span>{fmt_versions(versions)}</span>
+                    <span>{fmt_ts(versions[0][1])}</span>
                 </summary>"""
+        for v in versions:
+            html += f"""
+                <div class="grid-row detail-row">
+                    <span></span>
+                    <span>{packager}:{name}</span>
+                    <span>{v[0]}</span>
+                    <span>{fmt_ts(v[1])}</span>
+                </div>"""
+        html += "</details>\n"
 
-        # Sub-groups
-        for (kind, packager, name), versions in sorted(index['items'].items()):
-            kind = kind[:-1] # drop plural 's'
-            versions = sort_by_version(versions)
-            label = f"{packager}:<b>{name}</b>"
-            badge = f'<span class="badge badge-{kind}">{kind}</span>'
-            html_output += f"""
-                <details class="sub-group">
-                    <summary class="grid-row sub-summary-row">
-                        <span>{badge}</span>
-                        <span><span class="tree-branch">↳</span> {label}</span>
-                        <span>{fmt_versions(versions)}</span>
-                        <span>{fmt_ts(versions[0][1])}</span>
-                    </summary>"""
+    html += "</details>\n"
+    return html
 
-            # Detail rows
-            for v in versions:
-                html_output += f"""
-                    <div class="grid-row detail-row">
-                        <span></span>
-                        <span>{packager}:{name}</span>
-                        <span>{v[0]}</span>
-                        <span>{fmt_ts(v[1])}</span>
-                    </div>"""
-            html_output += "</details>\n"
 
-        html_output += "</details>\n"
-
+def build_table_html(data: dict, prod: dict, url_prefix: str) -> str:
+    """Render all table entries as file-item blocks."""
+    html_output = ""
+    for key, index in data.items():
+        html_output += build_inner_html(index, key, url_prefix)
+    html_output += build_inner_html(prod, "")
     return html_output
 
 
@@ -213,8 +251,9 @@ if __name__ == "__main__":
         print(f"Error: Output directory '{OUTPUT_DIR}' does not exist.")
         exit(1)
 
-    data = collect_entries()
-    dynamic_content = build_inner_html(data, url_prefix)
+    data = collect_ci_entries()
+    prod = collect_prod_entry()
+    dynamic_content = build_table_html(data, prod, url_prefix)
     generated_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     template_path = Path(__file__).with_suffix(".template.html")
