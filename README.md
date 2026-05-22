@@ -1,12 +1,13 @@
 # ci-builds
 
-Central store for CI build-metadata JSON snippets, with automated package index generation and publishing via GitHub Pages.
+Central store for CI-generated JSON snippets and their metadata, with automated package index generation and publishing via GitHub Pages.
 
 ## How it works
 
-1. Satellite repos call the reusable `store-snippets.yml` workflow at the end of their CI run
-2. JSON snippets are committed to `snippets/{owner}/{repo}/{branch}/`
-3. The `generate-index.yml` workflow triggers automatically, builds and publishes to GitHub Pages
+1. Satellite repos pack their JSON snippets in an artifact and include this repo as a composite action at the end of their CI run
+2. The action passes the JSON snippets and the OIDC-certified repo/branch to `store_snippets.yml` via `workflow_dispatch` on this repo
+3. JSON snippets are committed to `snippets/{owner}/{repo}/{branch}/{version}/` in this repo
+4. The `generate-index.yml` workflow triggers automatically, builds and publishes to GitHub Pages
 
 ## Repository layout
 
@@ -15,6 +16,7 @@ snippets/
   {owner}/
     {repo}/
       {branch}/
+        tagged-versions               ← list of released version_shorts (one per line)
         {version_short}/              ← e.g. 1.2.3
           platforms/
             {version}-<snippet>.json  ← e.g. 1.2.3-rc1-build-info.json
@@ -25,10 +27,42 @@ snippets/
           metadata/
             {version}-<file>.json
             ...
+action.yml                           ← composite action used by satellites
 .github/workflows/
-  store-snippets.yml  ← reusable workflow called by satellites
+  store-snippets.yml  ← reusable workflow called by the composite action
   generate-index.yml ← report generation + Pages deploy
 ```
+
+## Versioning
+
+Each CI run stores files under `snippets/{owner}/{repo}/{branch}/{version_short}/`.
+
+**`version_short`** is always `maj.min.rev` (e.g. `1.2.3`), stripped from the full build version. The full version (including any pre-release suffix, e.g. `1.2.3-rc1`) appears in filenames:
+
+- **`platforms/` and `metadata/`** files get a `{version}-` prefix (e.g. `1.2.3-rc1-build-info.json`). Multiple pre-release and release builds for the same `version_short` coexist in the same directory. When a new push arrives for the same prefix (e.g. a tag update), older files with that prefix are removed first to avoid duplicates.
+
+- **`tools/`** files are stored without a version prefix and are **overwritten** on each push. They represent the current toolchain state for that branch, not a per-version snapshot.
+
+### Release tracking
+
+When a satellite triggers from a tag ref and the full version equals `version_short` (no pre-release suffix), the version is appended to `tagged-versions`:
+
+```
+snippets/{owner}/{repo}/{branch}/tagged-versions
+```
+
+This one-line-per-version file is read by `generate-index.yml` to drive the tool selection logic below.
+
+### Tool selection
+
+Tools accumulate across version directories, but the generated index only includes a subset to avoid duplicating tools already present in the public `package_index.json`:
+
+| Run type | Condition | Tools included |
+|---|---|---|
+| **Pre-release** | highest version dir > last tagged release | tools added **after** the last tagged release |
+| **Release** | highest version dir == last tagged release | tools added **since the previous** tagged release |
+
+The reasoning: by the time a release tag is cut, the public index has not yet been updated — so tools from the new release must be included. But tools from earlier releases are already in the public index and should not be duplicated.
 
 ## Setup
 
@@ -40,7 +74,7 @@ In **ci-builds → Settings → Pages**, set source to **GitHub Actions**.
 
 In **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**:
 
-- **Repository access**: `arduino/ci-builds` only
+- **Repository access**: `arduino/core-ci-builds` only
 - **Permissions**: `Actions: write` — nothing else
 
 This token can only trigger workflows on ci-builds. It **cannot push code**, read secrets, or access any other repo.
@@ -57,60 +91,49 @@ In each satellite repo → **Settings → Secrets → Actions**, add:
 
 ### 4. Call the workflow from satellite CIs
 
-The satellite job needs `id-token: write` permission to request an OIDC token from GitHub. Add this step **after** your JSON-generating steps:
+The satellite job needs `id-token: write` permission to be able to acquire the OIDC token.
+
+Upload the snippet files as a GitHub Actions artifact. The artifact must contain JSON files laid out under `platforms/`, `tools/`, and/or `metadata/`:
+
+```
+platforms/
+  build-info.json
+tools/
+  gcc.json
+metadata/
+  ci.json
+```
+
+Then, call this repo as a composite action, pointing at that artifact name and passing the secret token. The action downloads the artifact, walks its contents, assembles the snippets object, and dispatches `store-snippets.yml`.
 
 ```yaml
 jobs:
   build:
     permissions:
-      id-token: write   # required to obtain the OIDC token
+      id-token: write   # required — inherited by the composite action
     steps:
-      # ... your build steps ...
+      # ... your build steps that produce JSON files ...
 
-      - name: Get OIDC identity token
-        id: oidc
-        uses: actions/github-script@v9
+      - name: Upload snippets artifact
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const token = await core.getIDToken('arduino/ci-builds');
-            core.setOutput('token', token);
+          name: ci-builds-snippets
+          path: snippets/   # directory containing platforms/, tools/, metadata/
 
-      - name: Store snippets in ci-builds
-        uses: actions/github-script@v9
+      - uses: arduino/core-ci-builds@main
         with:
-          github-token: ${{ secrets.CI_BUILDS_ACTIONS_TOKEN }}
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              owner: 'arduino',
-              repo: 'ci-builds',
-              workflow_id: 'store-snippets.yml',
-              ref: 'main',
-              inputs: {
-                oidc_token: '${{ steps.oidc.outputs.token }}',
-                // Required only when running from a tag ref; ignored for branch refs.
-                // Snippets will be stored under this branch's folder.
-                base_branch: '${{ github.base_ref || github.ref_name }}',
-                version: '${{ steps.build.outputs.version }}',
-                snippets: JSON.stringify({
-                  // Keys must start with 'platforms/', 'tools/', or 'metadata/'
-                  // All stored under {branch}/{version_short}/
-                  // platforms/ and metadata/ get a {version}- prefix on the filename; tools/ do not
-                  // e.g. platforms/build-info.json → {version_short}/platforms/{version}-build-info.json
-                  'platforms/build-info.json': ${{ toJSON(steps.build.outputs.metadata) }},
-                  'tools/gcc.json': ${{ toJSON(steps.build.outputs.tool_info) }},
-                  'metadata/ci.json': {
-                    run_id: '${{ github.run_id }}',
-                    run_url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
-                    sha: '${{ github.sha }}',
-                  },
-                }),
-              },
-            });
+          token: ${{ secrets.CI_BUILDS_ACTIONS_TOKEN }}
+          version: ${{ env.VERSION }}
+          artifact: ci-builds-snippets
+          # base-branch is required only when triggering from a tag ref:
+          # base-branch: ${{ github.ref_name }}
 ```
 
-`snippets` is a JSON object: **keys** are relative paths to store, **values** are the JSON objects to write. Keys must start with `platforms/`, `tools/`, or `metadata/`.
+The composite action runs on the **same runner as the calling job**, so it can download artifacts from the current run. Each `.json` file in the artifact is stored using its relative path as the key. Top-level subdirectory names must be `platforms`, `tools`, or `metadata`.
 
-The satellite's repository and branch are **not passed as inputs**. They are extracted inside ci-builds from the OIDC token — a JWT signed by GitHub's own key. If the token is missing, expired, or was issued for a different audience, the workflow fails before any data is written.
+All entries are stored under `{branch}/{version_short}/`, with a `{version}-` prefix added to `platforms/` and `metadata/` filenames. `tools/` filenames are stored as-is because they are only stored on full tags and are not strictly related to the core version.
+
+The calling satellite's repository and branch are **not passed as inputs**. They are encoded in the OIDC token (a JWT signed by GitHub's own key) that is generated in the caller's context and extracted inside ci-builds. If the token is missing, expired, or was issued for a different audience, the workflow fails before any data is written.
 
 ### Why `workflow_dispatch` instead of a reusable workflow?
 
@@ -133,12 +156,29 @@ With `workflow_dispatch`, the workflow runs **inside ci-builds** — ci-builds u
 
 1. Derives the index name: strips `ArduinoCore-` from repo, concatenates owner, short repo, branch and `_ci`
    e.g. `arduino / ArduinoCore-zephyr / main` → `arduino_zephyr_main_ci`
-2. Copies platform JSONs from `snippets/{owner}/{repo}/{branch}/platforms/` into `<indexname>/{owner}/platforms/`
-3. Copies tool JSONs from `snippets/{owner}/{repo}/{branch}/tools/` into `<indexname>/{owner}/tools/`
+2. Copies platform JSONs from `snippets/{owner}/{repo}/{branch}/*/platforms/` into `<indexname>/{owner}/platforms/`
+3. Copies tool JSONs (subject to tool selection rules above) into `<indexname>/{owner}/tools/`
 4. Copies additional tools from `<indexname>_staging/*/tools/` in the private repo (if present)
 5. Runs `meld.py --ref-index prod.json pages/<indexname>.json <indexname>/`
 
-Output: `<indexname>.json` per repo/branch, published to GitHub Pages.
+Output: one `<indexname>.json` per repo/branch, published to GitHub Pages at:
+```
+https://{owner}.github.io/{repo}/<indexname>.json
+```
+
+### index.html
+
+In addition to the JSON indexes, `generate-index.yml` generates `pages/index.html` — a browsable summary page published at `https://{owner}.github.io/{repo}/`.
+
+The page lists every CI index as a collapsible row:
+
+| Column | Content |
+|---|---|
+| Name | `{owner}/{repo} @ {branch}` — links to the JSON index |
+| Latest version | Latest platform version across all builds |
+| Last modified | Timestamp of the most recently committed snippet file |
+
+Each row expands to show sub-groups per platform and tool, each with all available versions and their individual timestamps. A search bar filters across all entries. The production `package_index.json` is shown as a reference row (labelled "official") when a search is active.
 
 ### Required secrets (in ci-builds)
 

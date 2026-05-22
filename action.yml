@@ -1,0 +1,91 @@
+# Copyright (c) Arduino s.r.l. and/or its affiliate companies
+# SPDX-License-Identifier: MPL-2.0
+
+name: Store CI build snippets
+description: >
+  Dispatch store-snippets.yml in arduino/ci-builds.
+  Reads all JSON files under a directory and assembles the snippets object
+  in the script. Acquires the OIDC identity token internally.
+
+  Requires the calling job to have 'id-token: write' permission (inherited
+  by composite action steps at runtime).
+
+  The action runs inline on the calling job's runner (composite action), so it
+  has full access to files written by prior steps in the same job.
+
+inputs:
+  artifact:
+    description: >
+      Name of the artifact containing JSON files to be assembled into the
+      snippets object. Each .json file is stored using its relative path as the
+      key. Subdirectories are walked recursively.
+      Keys must start with 'platforms/', 'tools/', or 'metadata/'.
+      Example layout:
+        platforms/build-info.json
+        tools/gcc.json
+        metadata/ci.json
+    required: true
+  version:
+    description: Build version string (e.g. "1.2.3" or "1.2.3-rc1").
+    required: true
+  token:
+    description: >
+      PAT or token with Actions:write on this repo.
+      Used to authenticate the workflow_dispatch call.
+    required: true
+  base-branch:
+    description: >
+      Branch the tag was cut from. Required only when triggering from a tag ref.
+      Ignored for branch refs.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Download snippets artifact
+      uses: actions/download-artifact@v6
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/snippets/
+
+    - name: Dispatch store-snippets
+      env:
+        THIS_REPO: ${{ github.action_repository }}
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const fs   = require('fs');
+          const path = require('path');
+
+          function collectJson(base, rel = '') {
+            const result = {};
+            for (const name of fs.readdirSync(path.join(base, rel))) {
+              const relPath  = rel ? `${rel}/${name}` : name;
+              const fullPath = path.join(base, relPath);
+              if (fs.statSync(fullPath).isDirectory()) {
+                Object.assign(result, collectJson(base, relPath));
+              } else if (name.endsWith('.json')) {
+                result[relPath] = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+              }
+            }
+            return result;
+          }
+
+          const [action_owner, action_repo] = '${{ env.THIS_REPO }}'.split('/');
+          const oidcToken = await core.getIDToken('${{ env.THIS_REPO }}');
+          const snippets  = collectJson('${{ runner.temp }}/snippets/');
+
+          await github.rest.actions.createWorkflowDispatch({
+            owner: action_owner,
+            repo: action_repo,
+            workflow_id: 'store-snippets.yml',
+            ref: 'main',
+            inputs: {
+              oidc_token:  oidcToken,
+              version:     '${{ inputs.version }}',
+              base_branch: '${{ inputs.base-branch }}',
+              snippets:    JSON.stringify(snippets),
+            },
+          });
