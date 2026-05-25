@@ -3,23 +3,25 @@
 
 name: Store snippets
 
-# Triggered by satellite repos via the GitHub API.
+# Triggered by satellite repos via the composite action in this repo.
 # Runs in ci-builds's own context — uses the built-in GITHUB_TOKEN to commit.
 # Satellite repos only need a fine-grained PAT with Actions:write on ci-builds
 # (no Contents:write — they cannot push code directly).
 # Source repo/branch are extracted from a cryptographically signed OIDC token
 # issued by GitHub — they cannot be forged by the caller.
+# The JSON payload is downloaded directly from the satellite's artifact store
+# using the artifact_token, avoiding workflow_dispatch input size limits.
 on:
   workflow_dispatch:
     inputs:
-      snippets:
+      artifact_id:
+        description: ID of the artifact uploaded by the satellite workflow (resolved by the composite action).
+        required: true
+        type: string
+      artifact_token:
         description: >
-          JSON object mapping path to JSON object.
-          Keys must start with 'platforms/', 'tools/', or 'metadata/'.
-          All keys are stored under {branch}/{version_short}/.
-          'platforms/' and 'metadata/' get the full version prefixed to the filename.
-          'tools/' files are stored as-is (overwritten on re-push, no version prefix).
-          Example: {"platforms/build-info.json": {...}, "tools/gcc.json": {...}, "metadata/ci.json": {...}}
+          Token with actions:read on the satellite repository.
+          Used to download the artifact. Treated as a secret — masked in logs.
         required: true
         type: string
       oidc_token:
@@ -51,7 +53,6 @@ jobs:
     steps:
       - name: Checkout ci-builds
         uses: actions/checkout@v6
-        # GITHUB_TOKEN is used implicitly — no external secret needed
 
       - name: Install PyJWT
         run: pip install --quiet "PyJWT[crypto]"
@@ -118,34 +119,62 @@ jobs:
           print(f'Verified source: {repo}@{branch}')
           EOF
 
-      - name: Validate snippets
+      - name: Download snippets artifact
         env:
-          SNIPPETS: ${{ inputs.snippets }}
+          GH_TOKEN: ${{ inputs.artifact_token }}
+          SOURCE_REPO: ${{ steps.verify-oidc.outputs.source_repo }}
+          ARTIFACT_ID: ${{ inputs.artifact_id }}
+        run: |
+          echo "::add-mask::$GH_TOKEN"
+
+          mkdir -p /tmp/snippets
+          gh api \
+            "/repos/$SOURCE_REPO/actions/artifacts/$ARTIFACT_ID/zip" \
+            > /tmp/snippets.zip
+
+          unzip -q /tmp/snippets.zip -d /tmp/snippets/
+          echo "Downloaded and extracted artifact $ARTIFACT_ID"
+
+      - name: Validate and prepare
+        env:
           VERSION: ${{ inputs.version }}
         run: |
-          echo "$SNIPPETS" | jq -e '
-            type == "object" and
-            (to_entries | all(
-              (.value | type == "object") and
-              (.key | test("^(platforms|tools|metadata)/"))
-            ))' \
-            || { echo "::error::snippets must be a JSON object whose values are JSON objects and keys must start with platforms/, tools/, or metadata/"; exit 1; }
+          FOUND=0
+          while IFS= read -r -d '' filepath; do
+            relpath="${filepath#/tmp/snippets/}"
+            dir="${relpath%%/*}"
+            if ! echo "$relpath" | grep -qE "^(platforms|tools|metadata)/"; then
+              echo "::error::Invalid snippet path '$relpath': top-level directory must be platforms/, tools/, or metadata/"
+              exit 1
+            fi
+            jq -e 'type == "object"' "$filepath" > /dev/null || {
+              echo "::error::$relpath is not a JSON object"
+              exit 1
+            }
+            FOUND=$((FOUND + 1))
+          done < <(find /tmp/snippets -name "*.json" -type f -print0)
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo "::error::No JSON files found in artifact"
+            exit 1
+          fi
+
           VERSION_SHORT=$(echo "$VERSION" | sed 's/^\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
           echo "VERSION_SHORT=$VERSION_SHORT" >> $GITHUB_ENV
 
       - name: Write snippet files
         env:
-          SNIPPETS: ${{ inputs.snippets }}
           VERSION: ${{ inputs.version }}
           SOURCE_REPO: ${{ steps.verify-oidc.outputs.source_repo }}
           SOURCE_BRANCH: ${{ steps.verify-oidc.outputs.source_branch }}
         run: |
           VERSION_DIR="snippets/${SOURCE_REPO}/${SOURCE_BRANCH}/${VERSION_SHORT}"
 
-          # Loop over entries once: remove stale versioned files then write the new one.
-          while IFS=$'\t' read -r filepath content; do
-            dir=$(dirname "$filepath")
-            base=$(basename "$filepath")
+          while IFS= read -r -d '' filepath; do
+            relpath="${filepath#/tmp/snippets/}"
+            dir=$(dirname "$relpath")
+            base=$(basename "$relpath")
+
             if [ "$dir" == "tools" ] ; then
               # Tools snippets do not share the core version, so avoid appending the version to the filename.
               prefix="${VERSION_DIR}/${dir}/${base}"
@@ -156,16 +185,16 @@ jobs:
               target="${prefix}${base}"
             fi
 
-            # Files with the same prefix (tag updates) must be removed to avoid duplicates
-            old_files=$(git ls-files HEAD ${prefix}*)
+            # Remove stale files with the same prefix on tag updates
+            old_files=$(git ls-files HEAD "${prefix}"*)
             if [ -n "$old_files" ]; then
               echo "$old_files" | xargs git rm -f --
             fi
 
             mkdir -p "$(dirname "$target")"
-            echo "$content" | jq '.' > "$target"
+            jq '.' "$filepath" > "$target"
             echo "Wrote $target"
-          done < <(echo "$SNIPPETS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+          done < <(find /tmp/snippets -name "*.json" -type f -print0)
 
       - name: Record full release version
         if: ${{ env.VERSION_SHORT == inputs.version }}

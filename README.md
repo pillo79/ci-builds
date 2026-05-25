@@ -104,7 +104,7 @@ metadata/
   ci.json
 ```
 
-Then, call this repo as a composite action, pointing at that artifact name and passing the secret token. The action downloads the artifact, walks its contents, assembles the snippets object, and dispatches `store-snippets.yml`.
+Then call this repo as a composite action. Pass the artifact name and the PAT for triggering the dispatch:
 
 ```yaml
 jobs:
@@ -129,7 +129,7 @@ jobs:
           # base-branch: ${{ github.ref_name }}
 ```
 
-The composite action runs on the **same runner as the calling job**, so it can download artifacts from the current run. Each `.json` file in the artifact is stored using its relative path as the key. Top-level subdirectory names must be `platforms`, `tools`, or `metadata`.
+The `store-snippets.yml` workflow downloads the artifact, which is expected to contain JSON files under `platforms/`, `tools/`, and/or `metadata/`.
 
 All entries are stored under `{branch}/{version_short}/`, with a `{version}-` prefix added to `platforms/` and `metadata/` filenames. `tools/` filenames are stored as-is because they are only stored on full tags and are not strictly related to the core version.
 
