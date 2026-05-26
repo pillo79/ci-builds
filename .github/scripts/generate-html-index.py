@@ -139,6 +139,20 @@ def fmt_ts(ts: str) -> str:
     return f'<span class="ts" data-ts="{ts}">{ts}</span>' if ts else ""
 
 
+def fmt_version_link(version: str, owner: str = "", repo: str = "") -> str:
+    """Wrap version in a GitHub tree link. +suffix → SHA, otherwise tag."""
+    if not owner or not repo:
+        return version
+    ref = version_to_ref(version)
+    url = f"https://github.com/{owner}/{repo}/tree/{ref}"
+    return f'<a href="{url}">{version}</a>'
+
+
+def version_to_ref(version: str) -> str:
+    """Extract the git ref from a version string. +suffix → SHA, else tag."""
+    return version.split("+", 1)[1] if "+" in version else version
+
+
 def fmt_versions(v: list) -> str:
     if v:
         last_version = v[0]
@@ -192,6 +206,13 @@ def group_items(items: dict) -> list:
     return result
 
 
+def data_attrs(owner: str, repo: str, version: str) -> str:
+    """Build data-owner/repo/ref attribute string for a grid row."""
+    if not owner or not repo:
+        return ""
+    return f' data-owner="{owner}" data-repo="{repo}" data-ref="{version_to_ref(version)}"'
+
+
 def build_inner_html(index, key = None, url_prefix = ""):
     """Render <details> blocks for a single index entry."""
     # Main item block
@@ -200,14 +221,21 @@ def build_inner_html(index, key = None, url_prefix = ""):
         details = 'file-item'
         badge = '<span class="badge badge-branch">branch</span>'
         title = f'<a href="{url_prefix + index['file']}">{owner}/{repo}<br>&nbsp;@ {branch}</a>'
+        # Latest platform version for the summary row
+        latest_ver = index['plat_vers'][0] if index['plat_vers'] else ""
+        if isinstance(latest_ver, tuple):
+            latest_ver = latest_ver[0]
+        summary_data = data_attrs(owner, repo, latest_ver)
     else: # prod entry
+        owner, repo = "", ""
         details = 'file-item official-item'
         badge = '<span class="badge badge-official">official</span>'
         title = 'package_index.json'
+        summary_data = ""
 
     html = f"""
         <details class="{details}">
-            <summary class="grid-row summary-row">
+            <summary class="grid-row summary-row"{summary_data}>
                 <span>{title} {badge}</span>
                 <span>{fmt_versions(index['plat_vers'])}</span>
                 <span>{fmt_ts(index['mtime'])}</span>
@@ -227,9 +255,11 @@ def build_inner_html(index, key = None, url_prefix = ""):
                     all_versions_set[v] = ts
         all_versions = sort_by_version([(v, ts) for v, ts in all_versions_set.items()])
 
+        sub_latest = all_versions[0][0] if all_versions else ""
+        sub_data = data_attrs(owner, repo, sub_latest)
         html += f"""
             <details class="sub-group">
-                <summary class="grid-row sub-summary-row">
+                <summary class="grid-row sub-summary-row"{sub_data}>
                     <span><span class="tree-branch">↳</span> {label} {badge}</span>
                     <span>{fmt_versions(all_versions)}</span>
                     <span>{fmt_ts(all_versions[0][1])}</span>
@@ -239,10 +269,11 @@ def build_inner_html(index, key = None, url_prefix = ""):
         for v, ts in all_versions:
             present = [m for m in members if v in member_ver_sets[m]]
             names_str = ", ".join(f"{p}:{n}" for _, p, n in present)
+            row_data = data_attrs(owner, repo, v)
             html += f"""
-                <div class="grid-row detail-row">
+                <div class="grid-row detail-row"{row_data}>
                     <span>{names_str}</span>
-                    <span>{v}</span>
+                    <span>{fmt_version_link(v, owner, repo)}</span>
                     <span>{fmt_ts(ts)}</span>
                 </div>"""
         html += "</details>\n"

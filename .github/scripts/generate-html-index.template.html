@@ -40,6 +40,11 @@
         .official-item, .official-item > .sub-group > .grid-row { color: #808080; }
         #emptyMessage { display: none; padding: 20px; text-align: center; color: #adb5bd; font-style: italic; }
         footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #dee2e6; text-align: right; font-size: 0.8em; color: #adb5bd; }
+        .commit-tooltip { position: absolute; z-index: 100; background: #1b1f23; color: #e6edf3; padding: 8px 12px; border-radius: 6px; font-size: 0.82em; max-width: 420px; white-space: pre-wrap; word-break: break-word; box-shadow: 0 2px 8px rgba(0,0,0,0.3); pointer-events: none; line-height: 1.4; }
+        .commit-tooltip .commit-stats { font-size: 0.9em; margin-top: 4px; }
+        .commit-tooltip .stat-add { color: #3fb950; }
+        .commit-tooltip .stat-del { color: #f85149; }
+        .commit-tooltip .stat-files { color: #d29922; }
     </style>
 </head>
 <body>
@@ -175,6 +180,72 @@
 
                 items.forEach(item => fileList.appendChild(item));
             });
+        });
+
+        // Commit tooltip on hover
+        const commitCache = {};
+        let tooltipEl = null;
+
+        function showTooltip(row, html) {
+            hideTooltip();
+            tooltipEl = document.createElement('div');
+            tooltipEl.className = 'commit-tooltip';
+            tooltipEl.innerHTML = html;
+            document.body.appendChild(tooltipEl);
+            positionTooltip(row);
+        }
+
+        function positionTooltip(row) {
+            if (!tooltipEl) return;
+            const rect = row.getBoundingClientRect();
+            tooltipEl.style.left = (rect.left + window.scrollX) + 'px';
+            tooltipEl.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+        }
+
+        function hideTooltip() {
+            if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+        }
+
+        function parseTreeUrl(el) {
+            if (el.dataset.owner && el.dataset.repo && el.dataset.ref) {
+                return { owner: el.dataset.owner, repo: el.dataset.repo, ref: el.dataset.ref };
+            }
+            return null;
+        }
+
+        document.getElementById('fileList').addEventListener('mouseover', async (e) => {
+            const row = e.target.closest('.grid-row');
+            if (!row || row.classList.contains('table-header')) return;
+            const info = parseTreeUrl(row);
+            if (!info) return;
+
+            const cacheKey = `${info.owner}/${info.repo}/${info.ref}`;
+            if (commitCache[cacheKey]) {
+                showTooltip(row, commitCache[cacheKey]);
+                return;
+            }
+            showTooltip(row, 'Loading…');
+            try {
+                const resp = await fetch(`https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
+                if (!resp.ok) throw new Error(resp.status);
+                const data = await resp.json();
+                const msg = data.commit.message.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const add = data.stats?.additions ?? '?';
+                const del = data.stats?.deletions ?? '?';
+                const files = data.files?.length ?? '?';
+                const stats = `<span class="stat-add">+${add}</span> <span class="stat-del">-${del}</span> lines over <span class="stat-files">${files} file${files !== 1 ? 's' : ''}</span>`;
+                const html = `${msg}\n<div class="commit-stats">${stats}</div>`;
+                commitCache[cacheKey] = html;
+                if (row.matches(':hover')) showTooltip(row, html);
+            } catch (err) {
+                const html = `Could not load commit info`;
+                if (row.matches(':hover')) showTooltip(row, html);
+            }
+        });
+
+        document.getElementById('fileList').addEventListener('mouseout', (e) => {
+            const row = e.target.closest('.grid-row');
+            if (row && !row.contains(e.relatedTarget)) hideTooltip();
         });
     </script>
 </body>
