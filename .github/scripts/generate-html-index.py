@@ -148,6 +148,34 @@ def fmt_versions(v: list) -> str:
         return "unknown"
 
 
+def group_items(items: dict) -> list:
+    """Group items with identical (kind, version/ts) fingerprints.
+
+    Returns a list of ([(kind, packager, name), ...], versions) tuples,
+    where each tuple represents one or more items sharing the same data.
+    """
+    # Build fingerprint → list of keys
+    groups = collections.defaultdict(list)
+    for key, versions in items.items():
+        kind = key[0]
+        fingerprint = (kind, tuple(sort_by_version(versions)))
+        groups[fingerprint].append(key)
+
+    # Build output: each group maps to its shared versions
+    result = []
+    seen = set()
+    for key in sorted(items.keys()):
+        if key in seen:
+            continue
+        kind = key[0]
+        fingerprint = (kind, tuple(sort_by_version(items[key])))
+        members = sorted(groups[fingerprint])
+        for m in members:
+            seen.add(m)
+        result.append((members, sort_by_version(items[key])))
+    return result
+
+
 def build_inner_html(index, key = None, url_prefix = ""):
     """Render <details> blocks for a single index entry."""
     # Main item block
@@ -169,11 +197,10 @@ def build_inner_html(index, key = None, url_prefix = ""):
                 <span>{fmt_ts(index['mtime'])}</span>
             </summary>"""
 
-    # Sub-groups
-    for (kind, packager, name), versions in sorted(index['items'].items()):
-        kind = kind[:-1]  # drop plural 's'
-        versions = sort_by_version(versions)
-        label = f"{packager}:<b>{name}</b>"
+    # Sub-groups (merged when items share identical version/ts sets)
+    for members, versions in group_items(index['items']):
+        kind = members[0][0][:-1]  # drop plural 's'
+        label = ", ".join(f"{p}:<b>{n}</b>" for _, p, n in members)
         badge = f'<span class="badge badge-{kind}">{kind}</span>'
         html += f"""
             <details class="sub-group">
@@ -182,10 +209,11 @@ def build_inner_html(index, key = None, url_prefix = ""):
                     <span>{fmt_versions(versions)}</span>
                     <span>{fmt_ts(versions[0][1])}</span>
                 </summary>"""
+        names_str = ", ".join(f"{p}:{n}" for _, p, n in members)
         for v in versions:
             html += f"""
                 <div class="grid-row detail-row">
-                    <span>{packager}:{name}</span>
+                    <span>{names_str}</span>
                     <span>{v[0]}</span>
                     <span>{fmt_ts(v[1])}</span>
                 </div>"""
