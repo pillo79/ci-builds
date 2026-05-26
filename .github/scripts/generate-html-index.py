@@ -7,6 +7,7 @@ import argparse
 import collections
 import datetime
 import json
+import re
 import semver
 import subprocess
 
@@ -17,6 +18,15 @@ from pathlib import Path
 OUTPUT_DIR = Path("pages") # contains JSON and srcmap files, index.html will be generated here
 SNIPPETS_DIR = Path("snippets") # contains owner/repo/branch/ directories with snippets
 SCRIPTS_DIR = Path("package_index/scripts") # contains last_modified.sh
+GROUP_PATTERNS_FILE = Path(__file__).parent / "group-patterns.json"
+
+
+def load_group_patterns() -> list:
+    """Load compiled regex patterns from group-patterns.json."""
+    if not GROUP_PATTERNS_FILE.exists():
+        return []
+    with open(GROUP_PATTERNS_FILE) as f:
+        return [re.compile(f"^{p}$") for p in json.load(f)]
 
 
 def get_index_name(owner: str, repo: str, branch: str) -> str:
@@ -149,30 +159,44 @@ def fmt_versions(v: list) -> str:
 
 
 def group_items(items: dict) -> list:
-    """Group items with identical (kind, version/ts) fingerprints.
+    """Group items by regex patterns from group-patterns.json.
 
-    Returns a list of ([(kind, packager, name), ...], versions) tuples,
-    where each tuple represents one or more items sharing the same data.
+    Items whose 'packager:name' matches the same pattern (and same kind)
+    are merged. The group's version list is the union of all members.
+    Returns a list of ([(kind, packager, name), ...], {(kind,packager,name): [(ver,ts),...]}) tuples.
     """
-    # Build fingerprint → list of keys
-    groups = collections.defaultdict(list)
-    for key, versions in items.items():
-        kind = key[0]
-        fingerprint = (kind, tuple(sort_by_version(versions)))
-        groups[fingerprint].append(key)
+    patterns = load_group_patterns()
 
-    # Build output: each group maps to its shared versions
+    # Assign each item to a group key: (kind, pattern_index) or (kind, packager, name) for unmatched
+    group_map = collections.defaultdict(list)
+    for key in items:
+        kind, packager, name = key
+        pn = f"{packager}:{name}"
+        matched = False
+        for i, pat in enumerate(patterns):
+            if pat.match(pn):
+                group_map[(kind, i)].append(key)
+                matched = True
+                break
+        if not matched:
+            group_map[key].append(key)
+
+    # Build output preserving sort order (by first member in each group)
     result = []
     seen = set()
     for key in sorted(items.keys()):
         if key in seen:
             continue
-        kind = key[0]
-        fingerprint = (kind, tuple(sort_by_version(items[key])))
-        members = sorted(groups[fingerprint])
-        for m in members:
-            seen.add(m)
-        result.append((members, sort_by_version(items[key])))
+        # Find which group this key belongs to
+        for gk, members in group_map.items():
+            if key in members:
+                sorted_members = sorted(members)
+                # Build per-member version map
+                member_versions = {m: sort_by_version(items[m]) for m in sorted_members}
+                for m in sorted_members:
+                    seen.add(m)
+                result.append((sorted_members, member_versions))
+                break
     return result
 
 
@@ -197,25 +221,37 @@ def build_inner_html(index, key = None, url_prefix = ""):
                 <span>{fmt_ts(index['mtime'])}</span>
             </summary>"""
 
-    # Sub-groups (merged when items share identical version/ts sets)
-    for members, versions in group_items(index['items']):
+    # Sub-groups (merged by regex pattern match)
+    for members, member_versions in group_items(index['items']):
         kind = members[0][0][:-1]  # drop plural 's'
         label = ", ".join(f"{p}:<b>{n}</b>" for _, p, n in members)
         badge = f'<span class="badge badge-{kind}">{kind}</span>'
+
+        # Union of all versions across members, sorted
+        all_versions_set = {}
+        for m, vers in member_versions.items():
+            for v, ts in vers:
+                if v not in all_versions_set or ts > all_versions_set[v]:
+                    all_versions_set[v] = ts
+        all_versions = sort_by_version([(v, ts) for v, ts in all_versions_set.items()])
+
         html += f"""
             <details class="sub-group">
                 <summary class="grid-row sub-summary-row">
                     <span><span class="tree-branch">↳</span> {label} {badge}</span>
-                    <span>{fmt_versions(versions)}</span>
-                    <span>{fmt_ts(versions[0][1])}</span>
+                    <span>{fmt_versions(all_versions)}</span>
+                    <span>{fmt_ts(all_versions[0][1]) if all_versions else ""}</span>
                 </summary>"""
-        names_str = ", ".join(f"{p}:{n}" for _, p, n in members)
-        for v in versions:
+        # Build per-member version lookup for quick membership check
+        member_ver_sets = {m: {v for v, _ in vers} for m, vers in member_versions.items()}
+        for v, ts in all_versions:
+            present = [m for m in members if v in member_ver_sets[m]]
+            names_str = ", ".join(f"{p}:{n}" for _, p, n in present)
             html += f"""
                 <div class="grid-row detail-row">
                     <span>{names_str}</span>
-                    <span>{v[0]}</span>
-                    <span>{fmt_ts(v[1])}</span>
+                    <span>{v}</span>
+                    <span>{fmt_ts(ts)}</span>
                 </div>"""
         html += "</details>\n"
 
