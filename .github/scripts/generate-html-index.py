@@ -147,6 +147,18 @@ def fmt_ts(ts: str) -> str:
     return f'<span class="ts" data-ts="{ts}">{ts}</span>' if ts else ""
 
 
+def fmt_version_link(version: str, owner: str = "", repo: str = "") -> str:
+    """Wrap version in a GitHub tree link. +suffix → SHA, otherwise tag."""
+    if not owner or not repo:
+        return version
+    if "+" in version:
+        ref = version.split("+", 1)[1]
+    else:
+        ref = version
+    url = f"https://github.com/{owner}/{repo}/tree/{ref}"
+    return f'<a href="{url}">{version}</a>'
+
+
 def fmt_versions(v: list) -> str:
     if v:
         last_version = v[0]
@@ -209,6 +221,7 @@ def build_inner_html(index, key = None, url_prefix = ""):
         badge = '<span class="badge badge-branch">branch</span>'
         title = f'<a href="{url_prefix + index['file']}">{owner}/{repo}<br>&nbsp;@ {branch}</a>'
     else: # prod entry
+        owner, repo = "", ""
         details = 'file-item official-item'
         badge = '<span class="badge badge-official">official</span>'
         title = 'package_index.json'
@@ -250,7 +263,7 @@ def build_inner_html(index, key = None, url_prefix = ""):
             html += f"""
                 <div class="grid-row detail-row">
                     <span>{names_str}</span>
-                    <span>{v}</span>
+                    <span>{fmt_version_link(v, owner, repo)}</span>
                     <span>{fmt_ts(ts)}</span>
                 </div>"""
         html += "</details>\n"
