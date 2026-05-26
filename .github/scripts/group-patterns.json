@@ -1,0 +1,5 @@
+[
+    "platforms/arduino:mbed.*",
+    "platforms/arduino:zephyr.*",
+    "tools/esp32:.*-libs"
+]

@@ -7,6 +7,7 @@ import argparse
 import collections
 import datetime
 import json
+import re
 import semver
 import subprocess
 
@@ -17,6 +18,7 @@ from pathlib import Path
 OUTPUT_DIR = Path("pages") # contains JSON and srcmap files, index.html will be generated here
 SNIPPETS_DIR = Path("snippets") # contains owner/repo/branch/ directories with snippets
 SCRIPTS_DIR = Path("package_index/scripts") # contains last_modified.sh
+GROUP_PATTERNS_FILE = Path(__file__).parent / "group-patterns.json"
 
 
 def get_index_name(owner: str, repo: str, branch: str) -> str:
@@ -148,6 +150,48 @@ def fmt_versions(v: list) -> str:
         return "unknown"
 
 
+def group_items(items: dict) -> list:
+    """Group items by regex patterns from group-patterns.json.
+
+    Patterns match against '{kind}/{packager}:{name}' strings (no overlaps assumed).
+    Returns a list of ([(kind, packager, name), ...], {key: [(ver,ts),...]}) tuples.
+    """
+
+    try:
+        with open(GROUP_PATTERNS_FILE) as f:
+            patterns = [re.compile(f"^{p}$") for p in json.load(f)]
+    except Exception:
+        patterns = []
+
+    # Map each item key → pattern index (or None if unmatched)
+    key_to_group = {}
+    groups = collections.defaultdict(list)
+    for key in items:
+        kind, packager, name = key
+        fqn = f"{kind}/{packager}:{name}"
+        group_id = key  # default: ungrouped
+        for i, pat in enumerate(patterns):
+            if pat.match(fqn):
+                group_id = i
+                break
+        key_to_group[key] = group_id
+        groups[group_id].append(key)
+
+    # Build output preserving sort order (by first member in each group)
+    result = []
+    seen = set()
+    for key in sorted(items.keys()):
+        if key in seen:
+            continue
+        gid = key_to_group[key]
+        sorted_members = sorted(groups[gid])
+        member_versions = {m: sort_by_version(items[m]) for m in sorted_members}
+        for m in sorted_members:
+            seen.add(m)
+        result.append((sorted_members, member_versions))
+    return result
+
+
 def build_inner_html(index, key = None, url_prefix = ""):
     """Render <details> blocks for a single index entry."""
     # Main item block
@@ -169,25 +213,37 @@ def build_inner_html(index, key = None, url_prefix = ""):
                 <span>{fmt_ts(index['mtime'])}</span>
             </summary>"""
 
-    # Sub-groups
-    for (kind, packager, name), versions in sorted(index['items'].items()):
-        kind = kind[:-1]  # drop plural 's'
-        versions = sort_by_version(versions)
-        label = f"{packager}:<b>{name}</b>"
+    # Sub-groups (merged by regex pattern match)
+    for members, member_versions in group_items(index['items']):
+        kind = members[0][0][:-1]  # drop plural 's'
+        label = ", ".join(f"{p}:<b>{n}</b>" for _, p, n in members)
         badge = f'<span class="badge badge-{kind}">{kind}</span>'
+
+        # Union of all versions across members, sorted
+        all_versions_set = {}
+        for m, vers in member_versions.items():
+            for v, ts in vers:
+                if v not in all_versions_set or ts > all_versions_set[v]:
+                    all_versions_set[v] = ts
+        all_versions = sort_by_version([(v, ts) for v, ts in all_versions_set.items()])
+
         html += f"""
             <details class="sub-group">
                 <summary class="grid-row sub-summary-row">
                     <span><span class="tree-branch">↳</span> {label} {badge}</span>
-                    <span>{fmt_versions(versions)}</span>
-                    <span>{fmt_ts(versions[0][1])}</span>
+                    <span>{fmt_versions(all_versions)}</span>
+                    <span>{fmt_ts(all_versions[0][1])}</span>
                 </summary>"""
-        for v in versions:
+        # Build per-member version lookup for quick membership check
+        member_ver_sets = {m: {v for v, _ in vers} for m, vers in member_versions.items()}
+        for v, ts in all_versions:
+            present = [m for m in members if v in member_ver_sets[m]]
+            names_str = ", ".join(f"{p}:{n}" for _, p, n in present)
             html += f"""
                 <div class="grid-row detail-row">
-                    <span>{packager}:{name}</span>
-                    <span>{v[0]}</span>
-                    <span>{fmt_ts(v[1])}</span>
+                    <span>{names_str}</span>
+                    <span>{v}</span>
+                    <span>{fmt_ts(ts)}</span>
                 </div>"""
         html += "</details>\n"
 
