@@ -32,7 +32,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0 # need all history to determine the file timestamps
-          token: ${{ secrets.CI_BUILDS_CONTENT_TOKEN }}
 
       - name: Checkout package index repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

@@ -53,6 +53,9 @@ jobs:
     steps:
       - name: Checkout ci-builds
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.CI_BUILDS_CONTENT_TOKEN }}
+
 
       - name: Install PyJWT
         run: pip install --quiet "PyJWT[crypto]"
@@ -213,8 +216,8 @@ jobs:
           SOURCE_BRANCH: ${{ steps.verify-oidc.outputs.source_branch }}
           VERSION: ${{ inputs.version }}
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "Arduinobot"
+          git config user.email "bot@arduino.cc"
           git add snippets/
 
           if git diff --cached --quiet; then
