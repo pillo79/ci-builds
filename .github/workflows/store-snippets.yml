@@ -180,18 +180,10 @@ jobs:
 
             if [ "$dir" == "tools" ] ; then
               # Tools snippets do not share the core version, so avoid appending the version to the filename.
-              prefix="${VERSION_DIR}/${dir}/${base}"
-              target="${prefix}"
+              target="${VERSION_DIR}/${dir}/${base}"
             else
               # Platforms and metadata snippets are versioned with the core version, so append the version to the filename.
-              prefix="${VERSION_DIR}/${dir}/${VERSION}-"
-              target="${prefix}${base}"
-            fi
-
-            # Remove stale files with the same prefix on tag updates
-            old_files=$(git ls-files HEAD "${prefix}"*)
-            if [ -n "$old_files" ]; then
-              echo "$old_files" | xargs git rm -f --
+              target="${VERSION_DIR}/${dir}/${VERSION}-${base}"
             fi
 
             mkdir -p "$(dirname "$target")"
