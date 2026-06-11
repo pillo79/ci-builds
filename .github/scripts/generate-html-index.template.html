@@ -215,6 +215,7 @@
 
         // Commit tooltip on hover
         const commitCache = {};
+        const commitFlight = {}; // one in-flight Promise per cacheKey
         let tooltipEl = null;
 
         function showTooltip(row, html) {
@@ -256,7 +257,7 @@
                 return;
             }
             showTooltip(row, 'Loading…');
-            const data = await fetchWithRetry(`https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
+            const data = await fetchCommit(cacheKey, `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
             const rawMsg = data.commit.message.replace(/</g,'&lt;').replace(/>/g,'&gt;');
             const add = data.stats?.additions ?? '?';
             const del = data.stats?.deletions ?? '?';
@@ -275,7 +276,7 @@
 
         // Inline commit message on details open
         async function fetchWithRetry(url) {
-            let delay = Math.random() * 1000 + 500; // 500ms to 1500ms
+            let delay = 1000;
             while (true) {
                 try {
                     const resp = await fetch(url);
@@ -291,6 +292,13 @@
                     delay = Math.min(delay * 2, 30000);
                 }
             }
+        }
+
+        function fetchCommit(cacheKey, url) {
+            if (commitFlight[cacheKey]) return commitFlight[cacheKey];
+            const p = fetchWithRetry(url).finally(() => { delete commitFlight[cacheKey]; });
+            commitFlight[cacheKey] = p;
+            return p;
         }
 
         function commitSummary(message) {
@@ -326,7 +334,7 @@
                     return;
                 }
                 injectCommitInline(row, '⏳');
-                const data = await fetchWithRetry(
+                const data = await fetchCommit(cacheKey,
                     `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`
                 );
                 const msg = commitSummary(data.commit.message);
