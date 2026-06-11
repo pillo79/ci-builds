@@ -213,9 +213,8 @@
             });
         });
 
-        // Commit tooltip on hover
-        const commitCache = {};
-        const commitFlight = {}; // one in-flight Promise per cacheKey
+        // Commit tooltip on hover + inline message on open
+        const commitCache = {}; // cacheKey → Promise<{msg, tooltipHtml}>
         let tooltipEl = null;
 
         function showTooltip(row, html) {
@@ -245,69 +244,36 @@
             return null;
         }
 
-        document.getElementById('fileList').addEventListener('mouseover', async (e) => {
-            const row = e.target.closest('.grid-row');
-            if (!row || row.classList.contains('table-header')) return;
-            const info = parseTreeUrl(row);
-            if (!info) return;
-
-            const cacheKey = `${info.owner}/${info.repo}/${info.ref}`;
-            if (commitCache[cacheKey]) {
-                showTooltip(row, commitCache[cacheKey]);
-                return;
-            }
-            showTooltip(row, 'Loading…');
-            const data = await fetchCommit(cacheKey, `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
-            const rawMsg = data.commit.message.replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            const add = data.stats?.additions ?? '?';
-            const del = data.stats?.deletions ?? '?';
-            const files = data.files?.length ?? '?';
-            const stats = `<span class="stat-add">+${add}</span> <span class="stat-del">-${del}</span> lines over <span class="stat-files">${files} file${files !== 1 ? 's' : ''}</span>`;
-            const html = `${rawMsg}\n<div class="commit-stats">${stats}</div>`;
-            commitCache[cacheKey] = html;
-            commitCache[cacheKey + ':msg'] = commitSummary(data.commit.message);
-            if (row.matches(':hover')) showTooltip(row, html);
-        });
-
-        document.getElementById('fileList').addEventListener('mouseout', (e) => {
-            const row = e.target.closest('.grid-row');
-            if (row && !row.contains(e.relatedTarget)) hideTooltip();
-        });
-
-        // Inline commit message on details open
-        async function fetchWithRetry(url) {
-            let delay = 1000;
-            while (true) {
-                try {
-                    const resp = await fetch(url);
-                    if (resp.status === 403 || resp.status === 429) {
+        function fetchCommit(cacheKey, url) {
+            if (commitCache[cacheKey]) return commitCache[cacheKey];
+            commitCache[cacheKey] = (async () => {
+                let delay = 1000;
+                while (true) {
+                    try {
+                        const resp = await fetch(url);
+                        if (resp.status === 403 || resp.status === 429) {
+                            await new Promise(r => setTimeout(r, delay));
+                            delay = Math.min(delay * 2, 30000);
+                            continue;
+                        }
+                        if (!resp.ok) throw new Error(resp.status);
+                        const data = await resp.json();
+                        const rawMsg = data.commit.message.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const lines = data.commit.message.split('\n');
+                        const firstWord = (lines[0] || '').trim().split(/\s/)[0];
+                        const msg = (firstWord === 'Merge' ? (lines[2] || lines[0] || '') : (lines[0] || '')).trim();
+                        const add = data.stats?.additions ?? '?';
+                        const del = data.stats?.deletions ?? '?';
+                        const files = data.files?.length ?? '?';
+                        const stats = `<span class="stat-add">+${add}</span> <span class="stat-del">-${del}</span> lines over <span class="stat-files">${files} file${files !== 1 ? 's' : ''}</span>`;
+                        return { msg, tooltipHtml: `${rawMsg}\n<div class="commit-stats">${stats}</div>` };
+                    } catch (err) {
                         await new Promise(r => setTimeout(r, delay));
                         delay = Math.min(delay * 2, 30000);
-                        continue;
                     }
-                    if (!resp.ok) throw new Error(resp.status);
-                    return await resp.json();
-                } catch (err) {
-                    await new Promise(r => setTimeout(r, delay));
-                    delay = Math.min(delay * 2, 30000);
                 }
-            }
-        }
-
-        function fetchCommit(cacheKey, url) {
-            if (commitFlight[cacheKey]) return commitFlight[cacheKey];
-            const p = fetchWithRetry(url).finally(() => { delete commitFlight[cacheKey]; });
-            commitFlight[cacheKey] = p;
-            return p;
-        }
-
-        function commitSummary(message) {
-            const lines = message.split('\n');
-            const firstWord = (lines[0] || '').trim().split(/\s/)[0];
-            if (firstWord === 'Merge') {
-                return (lines[2] || lines[0] || '').trim();
-            }
-            return (lines[0] || '').trim();
+            })();
+            return commitCache[cacheKey];
         }
 
         function injectCommitInline(row, text) {
@@ -322,6 +288,22 @@
             span.textContent = text;
         }
 
+        document.getElementById('fileList').addEventListener('mouseover', async (e) => {
+            const row = e.target.closest('.grid-row');
+            if (!row || row.classList.contains('table-header')) return;
+            const info = parseTreeUrl(row);
+            if (!info) return;
+            const cacheKey = `${info.owner}/${info.repo}/${info.ref}`;
+            showTooltip(row, 'Loading…');
+            const { tooltipHtml } = await fetchCommit(cacheKey, `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
+            if (row.matches(':hover')) showTooltip(row, tooltipHtml);
+        });
+
+        document.getElementById('fileList').addEventListener('mouseout', (e) => {
+            const row = e.target.closest('.grid-row');
+            if (row && !row.contains(e.relatedTarget)) hideTooltip();
+        });
+
         document.getElementById('fileList').addEventListener('toggle', async (e) => {
             const details = e.target;
             if (!details.open) return;
@@ -329,19 +311,11 @@
                 const info = parseTreeUrl(row);
                 if (!info) return;
                 const cacheKey = `${info.owner}/${info.repo}/${info.ref}`;
-                if (commitCache[cacheKey + ':msg'] !== undefined) {
-                    injectCommitInline(row, commitCache[cacheKey + ':msg']);
-                    return;
-                }
                 injectCommitInline(row, '⏳');
-                const data = await fetchCommit(cacheKey,
-                    `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`
-                );
-                const msg = commitSummary(data.commit.message);
-                commitCache[cacheKey + ':msg'] = msg;
+                const { msg } = await fetchCommit(cacheKey, `https://api.github.com/repos/${info.owner}/${info.repo}/commits/${info.ref}`);
                 injectCommitInline(row, msg);
             });
-        }, true); // capture phase to catch events from nested <details>
+        }, true);
     </script>
 </body>
 </html>
