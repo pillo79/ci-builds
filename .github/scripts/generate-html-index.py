@@ -156,6 +156,8 @@ def tag_pill(version: str, releases: set) -> str:
     """Return a tag badge if the version matches a tagged-versions entry."""
     if version in releases:
         return ' <span class="badge badge-tag">release</span>'
+    if releases and not "+" in version:
+        return ' <span class="badge badge-tag">tag</span>'
     return ""
 
 
@@ -283,6 +285,9 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
         label = ", ".join(f"{p}:<b>{n}</b>" for _, p, n in members)
         badge = f'<span class="badge badge-{kind}">{kind}</span>'
 
+        # only platforms get release/tag badges
+        rel_versions = releases if kind == "platform" else set()
+
         # Union of all versions across members, sorted
         all_versions_set = {}
         for m, vers in member_versions.items():
@@ -296,9 +301,10 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
                 <summary class="grid-row sub-summary-row">
                     <span></span>
                     <span><span class="tree-branch">↳</span> {label} {badge}</span>
-                    <span>{version_cell(all_versions, releases, owner, repo, commit_data)}</span>
+                    <span>{version_cell(all_versions, rel_versions, owner, repo, commit_data)}</span>
                     <span>{fmt_ts(all_versions[0][1])}</span>
                 </summary>"""
+
         # Build per-member version lookup for quick membership check
         member_ver_sets = {m: {v for v, _ in vers} for m, vers in member_versions.items()}
         for v, ts in all_versions:
@@ -309,7 +315,7 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
                 <div class="grid-row detail-row">
                     <span></span>
                     <span>{names_str}</span>
-                    <span>{fmt_version_link(v, releases, owner, repo)}{commit_snippet(entry)}</span>
+                    <span>{fmt_version_link(v, rel_versions, owner, repo)}{commit_snippet(entry)}</span>
                     <span>{fmt_ts(ts)}</span>
                 </div>"""
         out += "</details>\n"
