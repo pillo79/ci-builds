@@ -179,21 +179,23 @@ def more_pill(count: int) -> str:
     return f' <span class="badge badge-more">+{count - 1}</span>' if count > 1 else ""
 
 def commit_snippet(entry: dict) -> str:
-    """Return summary+stats HTML spans for a commit_data entry, or ''."""
+    """Return summary+stats+author HTML spans for a commit_data entry, or ''."""
     if not entry:
         return ""
     parts = []
     if entry.get("summary"):
         parts.append(f'<span class="commit-summary">{entry["summary"]}</span>')
-    add, del_, files = entry.get("add"), entry.get("del"), entry.get("files")
+    add, del_, files, author = entry.get("add"), entry.get("del"), entry.get("files"), entry.get("author")
     if add is not None or del_ is not None:
         add_s = f'+{add}' if add is not None else '?'
         del_s = f'-{del_}' if del_ is not None else '?'
-        files_part = (f', <span class="stat-files">{files} file{"s" if files != 1 else ""}</span>'
+        files_part = (f'in <span class="stat-files">{files} file{"s" if files != 1 else ""}</span>'
                       if files is not None else '')
+        author_part = f' by @{author}' if author else ''
         parts.append(f'<span class="commit-stats-inline">'
                      f'<span class="stat-add">{add_s}</span> '
-                     f'<span class="stat-del">{del_s}</span> lines{files_part}</span>')
+                     f'<span class="stat-del">{del_s}</span> lines'
+                     f'{files_part}{author_part}</span>')
     return "".join(parts)
 
 
@@ -324,27 +326,21 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
     return out
 
 
-def commit_summary(message: str, owner: str, repo: str) -> str:
-    """Return a ready-to-embed HTML snippet for a commit message.
+def commit_summary(pr: dict, message: str) -> str:
+    """Return a ready-to-embed HTML snippet for a commit.
 
-    Merge commits (first word == "Merge"):
-      text = 3rd line (PR title), HTML-escaped, followed by a PR link
-             built from the 4th word of line 1 (e.g. "#123").
-    Regular commits:
-      text = HTML-escaped 1st line.
+    If a PR node is given, use its title + linked number.
+    Otherwise fall back to HTML-escaping the first line of the message.
     """
-    lines = message.splitlines()
-    first_line = lines[0].strip() if lines else ""
-    words = first_line.split()
-    if words and words[0] == "Merge" and len(words) > 3:
-        pr_word = words[3]
-        pr_number = pr_word.lstrip("#") if pr_word.startswith("#") else None
-        text = lines[2].strip() if len(lines) > 2 else first_line
-        esc = html.escape(text)
+    if pr:
+        esc = html.escape(pr.get("title") or "")
+        pr_number = pr.get("number")
         if pr_number:
             pr_url = f"https://github.com/{owner}/{repo}/pull/{pr_number}"
             return f'{esc} (<a href="{pr_url}" target="_blank">#{pr_number}</a>)'
         return esc
+
+    first_line = (message.splitlines()[0].strip()) if message else ""
     return html.escape(first_line)
 
 
@@ -367,7 +363,11 @@ def collect_commit_refs(data: dict) -> set:
     return refs
 
 
-_GRAPHQL_FRAGMENT = "fragment C on Commit { message additions deletions changedFilesIfAvailable }"
+_GRAPHQL_FRAGMENT = """fragment C on Commit {
+  message additions deletions changedFilesIfAvailable
+  author { user { login } name }
+  associatedPullRequests(first: 1) { nodes { number title author { login } } }
+}"""
 _GRAPHQL_URL = "https://api.github.com/graphql"
 _GRAPHQL_PAGE = 50  # aliases per repository block
 
@@ -427,11 +427,16 @@ query {{
                 node = repo_data.get(f"s{i}") or {}
                 key = f"{owner}/{repo}/{ref}"
                 msg = node.get("message", "")
+                assoc_prs = (node.get("associatedPullRequests") or {}).get("nodes") or []
+                pr = assoc_prs[0] if assoc_prs else {}
+                pr_author  = (pr.get("author") or {}).get("login", "")
+                git_author = ((node.get("author") or {}).get("user") or {}).get("login", "")
                 result[key] = {
                     "add":     node.get("additions"),
                     "del":     node.get("deletions"),
                     "files":   node.get("changedFilesIfAvailable"),
-                    "summary": commit_summary(msg, owner, repo) if msg else "",
+                    "summary": commit_summary(pr, msg),
+                    "author":  pr_author or git_author,
                 }
 
     return result
