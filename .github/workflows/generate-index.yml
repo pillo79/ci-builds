@@ -142,7 +142,7 @@ jobs:
             done
 
             # Generate the final index
-            (cd package_index && scripts/meld.py --ref-index prod.json "../pages/${index_name}.json" "${index_name}/")
+            (cd package_index && scripts/meld.py --ref-index prod.json "../pages/package_${index_name}_index.json" "${index_name}/")
 
             echo "::endgroup::"
           done

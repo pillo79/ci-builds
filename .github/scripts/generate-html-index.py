@@ -116,7 +116,7 @@ def collect_ci_entries() -> dict:
         if len(parts) != 3:
             continue
         owner, repo, branch = parts
-        index_name = f"{get_index_name(owner, repo, branch)}.json"
+        index_name = f"package_{get_index_name(owner, repo, branch)}_index.json"
         raw_srcmap = load_srcmap(index_name)
         items, plat_versions, last_ts = parse_srcmap_items(raw_srcmap, last_timestamps)
 
