@@ -189,7 +189,7 @@ def commit_snippet(entry: dict) -> str:
     if add is not None or del_ is not None:
         add_s = f'+{add}' if add is not None else '?'
         del_s = f'-{del_}' if del_ is not None else '?'
-        files_part = (f'in <span class="stat-files">{files} file{"s" if files != 1 else ""}</span>'
+        files_part = (f' in <span class="stat-files">{files} file{"s" if files != 1 else ""}</span>'
                       if files is not None else '')
         author_part = f' by @{author}' if author else ''
         parts.append(f'<span class="commit-stats-inline">'
