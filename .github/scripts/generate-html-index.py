@@ -163,7 +163,7 @@ def tag_pill(version: str, releases: set) -> str:
 
 def fmt_version_link(version: str, releases: set, owner: str = "", repo: str = "") -> str:
     """Wrap version in a GitHub tree link. +suffix → SHA, otherwise tag."""
-    if not owner or not repo:
+    if releases is None:
         return version
     ref = version_to_ref(version)
     url = f"https://github.com/{owner}/{repo}/tree/{ref}"
@@ -208,7 +208,7 @@ def version_cell(versions: list, releases: set, owner: str, repo: str,
     if isinstance(latest, tuple):
         latest = latest[0]
     entry = (commit_data.get(f"{owner}/{repo}/{version_to_ref(latest)}", {})
-             if owner and repo and latest else {})
+             if releases is not None and latest else {})
     return (fmt_version_link(latest, releases, owner, repo)
             + more_pill(len(versions))
             + commit_snippet(entry))
@@ -287,8 +287,9 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
         label = ", ".join(f"{p}:<b>{n}</b>" for _, p, n in members)
         badge = f'<span class="badge badge-{kind}">{kind}</span>'
 
-        # only platforms get release/tag badges
-        rel_versions = releases if kind == "platform" else set()
+        # only platforms get release/tag badges; None is used to indicate
+        # that the version cell should not add any metadata
+        rel_versions = None if kind == "tool" else releases
 
         # Union of all versions across members, sorted
         all_versions_set = {}
@@ -312,7 +313,7 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
         for v, ts in all_versions:
             present = [m for m in members if v in member_ver_sets[m]]
             names_str = ", ".join(f"{p}:{n}" for _, p, n in present)
-            entry = commit_data.get(f"{owner}/{repo}/{version_to_ref(v)}", {}) if owner and repo else {}
+            entry = commit_data.get(f"{owner}/{repo}/{version_to_ref(v)}", {}) if rel_versions is not None else {}
             out += f"""
                 <div class="grid-row detail-row">
                     <span></span>
