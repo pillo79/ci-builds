@@ -87,7 +87,7 @@ def parse_srcmap_items(raw_srcmap: dict, timestamps: dict = {}) -> tuple:
     timestamps maps srcfile path → ISO8601 string; absent entries yield "".
     """
     items = collections.defaultdict(list)
-    plat_versions = set()
+    plat_versions = dict()
     last_ts = ""
     for kind in "platforms", "tools":
         for what, srcfile in raw_srcmap.get(kind, {}).items():
@@ -96,7 +96,10 @@ def parse_srcmap_items(raw_srcmap: dict, timestamps: dict = {}) -> tuple:
             items[(kind, packager, name)].append((version, ts))
             last_ts = max(last_ts, ts)
             if kind == "platforms":
-                plat_versions.add(version)
+                plat_ts = plat_versions.get(version, "")
+                if ts > plat_ts:
+                    plat_versions[version] = ts
+    plat_versions = set(plat_versions.items())
     return items, plat_versions, last_ts
 
 
@@ -161,13 +164,14 @@ def tag_pill(version: str, releases: set) -> str:
     return ""
 
 
-def fmt_version_link(version: str, releases: set, owner: str = "", repo: str = "") -> str:
+def fmt_version_link(version: str, ts: str, releases: set|None, owner: str = "", repo: str = "") -> str:
     """Wrap version in a GitHub tree link. +suffix → SHA, otherwise tag."""
+    local =  '<span title="CI-generated artifact">🌱</span> ' if ts else ""
     if releases is None:
-        return version
+        return local + version
     ref = version_to_ref(version)
     url = f"https://github.com/{owner}/{repo}/tree/{ref}"
-    return f'<a href="{url}">{version}</a>{tag_pill(version, releases)}'
+    return f'{local}<a href="{url}">{version}</a>{tag_pill(version, releases)}'
 
 
 def version_to_ref(version: str) -> str:
@@ -206,10 +210,13 @@ def version_cell(versions: list, releases: set, owner: str, repo: str,
         return "unknown"
     latest = versions[0]
     if isinstance(latest, tuple):
-        latest = latest[0]
+        latest, ts = latest
+    else:
+        # no ts info
+        ts = ""
     entry = (commit_data.get(f"{owner}/{repo}/{version_to_ref(latest)}", {})
              if releases is not None and latest else {})
-    return (fmt_version_link(latest, releases, owner, repo)
+    return (fmt_version_link(latest, ts, releases, owner, repo)
             + more_pill(len(versions))
             + commit_snippet(entry))
 
@@ -318,7 +325,7 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {})
                 <div class="grid-row detail-row">
                     <span></span>
                     <span>{names_str}</span>
-                    <span>{fmt_version_link(v, rel_versions, owner, repo)}{commit_snippet(entry)}</span>
+                    <span>{fmt_version_link(v, ts, rel_versions, owner, repo)}{commit_snippet(entry)}</span>
                     <span>{fmt_ts(ts)}</span>
                 </div>"""
         out += "</details>\n"
