@@ -68,6 +68,7 @@ jobs:
 
             # Platforms: copy from all version subdirs
             mkdir -p "package_index/${index_name}/${owner}/platforms"
+            echo ${branch_dir}
             for version_dir in "${branch_dir}"*/; do
               [ -d "${version_dir}platforms" ] || continue
               cp "${version_dir}platforms/"*.json "package_index/${index_name}/${owner}/platforms/" 2>/dev/null || true
@@ -114,7 +115,7 @@ jobs:
             version_gt()  { version_gte "$1" "$2" && [ "$1" != "$2" ]; }
 
             # Find the maximum version dir present
-            versions=$(cd "$branch_dir" && ls -d */ | tr -d '/')
+            versions=$(cd "$branch_dir" && ls -Ad */ | tr -d '/')
             max_ver=$(version_max $versions)
 
             if [ "$max_ver" == "$last_release" ]; then
@@ -129,7 +130,8 @@ jobs:
             mkdir -p "package_index/${index_name}/${owner}/tools"
             for ver in ${versions}; do
               version_dir="${branch_dir}/${ver}/"
-              [ -d "${version_dir}tools" ] || continue
+              echo ${version_dir}
+              [ -n "$(ls "${version_dir}tools/*.json" 2>/dev/null)" ] || continue
 
               if $include_previous && version_gte "$ver" "$prev_release"; then
                 include=true
