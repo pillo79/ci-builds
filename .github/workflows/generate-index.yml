@@ -79,6 +79,8 @@ jobs:
             if [ -d "$staging_dir" ]; then
               (cd "$staging_dir" && for dir in */tools; do
                 mkdir -p "../${index_name}/${dir}"
+                echo ":: $dir"
+                ls "${dir}"
                 cp "${dir}"/*.json "../${index_name}/${dir}/"
               done)
             fi
