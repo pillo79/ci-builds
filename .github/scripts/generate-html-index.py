@@ -145,8 +145,9 @@ def collect_ci_entries(official: set = set()) -> dict:
             "mtime": last_ts,
             "items": items,
             "srcfiles": srcfiles,
-            # CI-only artifacts: built from a snippet and not in the official index
+            # Artifacts built from a snippet, split by presence in the official index
             "local": {k for k, path in srcfiles.items() if path and k not in official},
+            "official": {k for k, path in srcfiles.items() if path and k in official},
             "releases": load_releases(owner, repo, branch),
         }
     return data
@@ -205,6 +206,7 @@ def collect_prod_entry() -> dict:
         "items": items,
         "srcfiles": srcfiles,
         "local": set(),
+        "official": set(),
         "releases": set(),
     }
 
@@ -223,9 +225,16 @@ def tag_pill(version: str, releases: set) -> str:
     return ""
 
 
-def fmt_version_link(version: str, local: bool, releases: set|None, owner: str = "", repo: str = "") -> str:
+OFFICIAL_ICON = "🌳"
+ORIGIN_MARKS = {
+    "local": '<span title="CI-generated artifact">🌱</span> ',
+    "official": f'<span title="In official package index">{OFFICIAL_ICON}</span> ',
+}
+
+
+def fmt_version_link(version: str, origin: str, releases: set|None, owner: str = "", repo: str = "") -> str:
     """Wrap version in a GitHub tree link. +suffix → SHA, otherwise tag."""
-    leaf = '<span title="CI-generated artifact">🌱</span> ' if local else ""
+    leaf = ORIGIN_MARKS.get(origin, "")
     if releases is None:
         return leaf + version
     ref = version_to_ref(version)
@@ -265,13 +274,21 @@ def commit_snippet(entry: dict) -> str:
     return "".join(parts)
 
 
-def local_versions(index: dict, members: list) -> set:
-    """Versions for which any of the (kind, packager, name) members is a CI-only artifact."""
-    return {version for (*member, version) in index['local'] if tuple(member) in members}
+def version_origins(index: dict, members: list) -> dict:
+    """Map versions of the (kind, packager, name) members to 'local' or 'official'.
+
+    A version is 'local' if any member providing it is a CI-only artifact.
+    """
+    origins = {}
+    for origin in "official", "local":
+        for *member, version in index[origin]:
+            if tuple(member) in members:
+                origins[version] = origin
+    return origins
 
 
 def version_cell(versions: list, releases: set, owner: str, repo: str,
-                 commit_data: dict, local: set) -> str:
+                 commit_data: dict, origins: dict) -> str:
     """Build full version cell: latest-link + more-pill + commit-snippet."""
     if not versions:
         return "unknown"
@@ -280,7 +297,7 @@ def version_cell(versions: list, releases: set, owner: str, repo: str,
         latest = latest[0]
     entry = (commit_data.get(f"{owner}/{repo}/{version_to_ref(latest)}", {})
              if releases is not None and latest else {})
-    return (fmt_version_link(latest, latest in local, releases, owner, repo)
+    return (fmt_version_link(latest, origins.get(latest, ""), releases, owner, repo)
             + more_pill(len(versions))
             + commit_snippet(entry))
 
@@ -334,6 +351,7 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {},
     if key: # all CI branch entries
         owner, repo, branch = key
         details = 'file-item'
+        icon = '📜'  # replaced client-side by the activity icon
         badge = '<span class="badge badge-branch">CI branch</span>'
         file_url = html.escape(url_prefix + index['file'])
         title = (
@@ -348,17 +366,18 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {},
     else: # prod entry
         owner, repo = "", ""
         details = 'file-item official-item'
+        icon = f'<span title="Official package index">{OFFICIAL_ICON}</span>'
         badge = '<span class="badge badge-official">official</span>'
         title = 'package_index.json'
 
     plat_vers = index['plat_vers']
-    plat_local = local_versions(index, [m for m in index['items'] if m[0] == "platforms"])
+    plat_origins = version_origins(index, [m for m in index['items'] if m[0] == "platforms"])
     out = f"""
         <details class="{details}">
             <summary class="grid-row summary-row">
-                <span class="activity-cell">📜</span>
+                <span class="activity-cell">{icon}</span>
                 <span>{title} {badge}</span>
-                <span>{version_cell(plat_vers, releases, owner, repo, commit_data, plat_local)}</span>
+                <span>{version_cell(plat_vers, releases, owner, repo, commit_data, plat_origins)}</span>
                 <span>{fmt_ts(index['mtime'])}</span>
             </summary>"""
 
@@ -379,14 +398,14 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {},
                 if v not in all_versions_set or ts > all_versions_set[v]:
                     all_versions_set[v] = ts
         all_versions = sort_by_version([(v, ts) for v, ts in all_versions_set.items()])
-        local = local_versions(index, members)
+        origins = version_origins(index, members)
 
         out += f"""
             <details class="sub-group">
                 <summary class="grid-row sub-summary-row">
                     <span></span>
                     <span><span class="tree-branch">↳</span> {label} {badge}</span>
-                    <span>{version_cell(all_versions, rel_versions, owner, repo, commit_data, local)}</span>
+                    <span>{version_cell(all_versions, rel_versions, owner, repo, commit_data, origins)}</span>
                     <span>{fmt_ts(all_versions[0][1])}</span>
                 </summary>"""
 
@@ -427,7 +446,7 @@ def build_inner_html(index, key = None, url_prefix = "", commit_data: dict = {},
                 <div class="grid-row detail-row">
                     <span></span>
                     <span>{names_str}{names_pill}</span>
-                    <span>{fmt_version_link(v, v in local, rel_versions, owner, repo)}{commit_snippet(entry)}</span>
+                    <span>{fmt_version_link(v, origins.get(v, ""), rel_versions, owner, repo)}{commit_snippet(entry)}</span>
                     <span>{fmt_ts(ts)}</span>
                 </div>"""
         out += "</details>\n"
